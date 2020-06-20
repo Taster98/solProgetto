@@ -41,13 +41,14 @@ typedef struct supermercato{
 //funzione che inizializza il config
 static void inizializzaConfig();
 //testing config
-static void testConfig();
+//static void testConfig();
 //Variabile globale per il file di configurazione
 static config cfg;
 //Variabili globali per gestire i segnali SIGHUP e SIGQUIT
 volatile sig_atomic_t sighup = 0;
 volatile sig_atomic_t sigquit = 0;
-
+//coda globale acceduta da chi non acquista niente
+//coda *coda_uscenti;
 static void handler(int signum){
     if(signum == 1){
         //SIGHUP
@@ -60,33 +61,57 @@ static void handler(int signum){
     }
 }
 
+
 //file aggiuntivi
 #include "./headers/client.h"
-#include "./headers/coda.h"
 #include "./headers/cassiere.h"
 #include "./errors/error.h"
+#include "./headers/coda.h"
 
+//Coda dei non compranti
+coda *nonCompranti;
+pthread_mutex_t mutex_non_compranti = PTHREAD_MUTEX_INITIALIZER;
+pthread_cond_t cond_non_compranti = PTHREAD_COND_INITIALIZER;
 
 int main(){
     //GESTORE
     struct sigaction s;
+    nonCompranti = creaCoda(); 
     memset(&s,0,sizeof(s));
     s.sa_handler=handler;
     ec_meno1(sigaction(SIGHUP,&s,NULL),"Errore segnale di SIGHUP");
     ec_meno1(sigaction(SIGQUIT,&s,NULL),"Errore segnale di SIGQUIT");
     //inizializzo il config
     inizializzaConfig();
-    testConfig();
+    //testConfig();
     //test random
     //inizializzo cassiere
     cassiere c;
     inizializzaCassiere(&c,0);
-    printCassiere(c);
-    printf("%d\n",getpid());
-    while(1){
-        sleep(1);
-        printf("Ciao\n");
+    //printCassiere(c);
+
+    //TEST genero cfg->C clienti
+    client *cl = malloc(sizeof(client)*cfg.C);
+    pthread_t *thids = malloc(sizeof(pthread_t)*cfg.C);
+    for(int i=0;i<cfg.C;i++){
+        thids[i] = i;
+        inizializzaCliente(&cl[i],i);
+        if(pthread_create(&thids[i],NULL,&Cliente,&cl[i]) != 0){
+            fprintf(stderr,"Errore creazione thread %d-esimo",i);
+            exit(EXIT_FAILURE);
+        }
     }
+    //JOIN
+    for(int i=0;i<cfg.C;i++){
+        int status;
+        if(pthread_join(thids[i],(void *)&status) != 0){
+            fprintf(stderr,"Errore join thread %d-esimo",i);
+            exit(EXIT_FAILURE);
+        }
+    }
+    free(thids);
+    fprintf(stdout,"\n\nFinito, ho creato %d thread\n",cfg.C);
+    return 0;
 }
 
 static void inizializzaConfig(){
@@ -104,7 +129,7 @@ static void inizializzaConfig(){
     cfg.num_prodotti = 0;
 }
 
-static void testConfig(){
+/*static void testConfig(){
     printf("Casse max: %d\nClienti max: %d\nClienti entranti/uscenti max: %d\nTempo max: %d\n",cfg.K,cfg.C,cfg.E,cfg.T);
-}
+}*/
 

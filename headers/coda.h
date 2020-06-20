@@ -1,3 +1,5 @@
+//Mutex per la gestione della coda
+static pthread_mutex_t queue_mutex = PTHREAD_MUTEX_INITIALIZER;
 typedef struct elem{
     client c; //cliente singolo
     struct elem *next; //cliente successivo
@@ -28,31 +30,37 @@ coda *creaCoda(){
 //funzione che inserisce in coda
 //prendo il cliente tmp da inserire in coda q
 void enqueue(coda *q, client tmp){
-    elem *e = creaElem(tmp);
+    elem *e;
+    pthread_mutex_lock(&queue_mutex);
+
+    e = creaElem(tmp);
 
     //se la coda è vuota aggiungo sia in testa che in coda:
     if(q->tail == NULL){
         q->head=q->tail=e;
-        return;
+    }else{
+        //altrimenti devo aggiungere in fondo e "spostare" l'indice che punta alla coda
+        q->tail->next = e;
+        q->tail = e;
     }
-    //altrimenti devo aggiungere in fondo e "spostare" l'indice che punta alla coda
-    q->tail->next = e;
-    q->tail = e;
+    pthread_mutex_unlock(&queue_mutex);
 }
 
 
-//funzione che estrae dalla coda
+//funzione che estrae dalla coda e ritorna l'elemento in testa
 void dequeue(coda *q){
-    if(q->head == NULL)
-        return;
-    elem *tmp = q->head;
-    //scala di un posto la testa
-    q->head = q->head->next;
-    //se siamo arrivati in fondo inizializzo anche la coda
-    if(q->head == NULL)
-        q->tail = NULL;
+    pthread_mutex_lock(&queue_mutex);
+    if(q->head != NULL){
+        elem *tmp = q->head;
+        //scala di un posto la testa
+        q->head = q->head->next;
+        //se siamo arrivati in fondo inizializzo anche la coda
+        if(q->head == NULL)
+            q->tail = NULL;
 
-    free(tmp);
+        free(tmp);
+    }
+    pthread_mutex_unlock(&queue_mutex);
 }
 
 //funzione che stampa la coda
