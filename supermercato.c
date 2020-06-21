@@ -76,14 +76,14 @@ pthread_cond_t *condFlagCodeVuoteCassieri;
 //cassieri
 pthread_mutex_t mutexCassieri = PTHREAD_MUTEX_INITIALIZER;
 cassiere *cassieri;
-
 //funzione che inizializza le mutex/cv/flags e code dei cassieri
 void initCassieri();
 //Funzione per il thread Cliente
 void *Cliente(void *arg);
 //Funzione per il thread Cassiere
 void *Cassiere(void *arg);
-
+//Funzione per il thread Direttore
+void *DirettoreClienti(void *arg);
 int main(){
     //INIZIALIZZO GESTORE SEGNALI
     struct sigaction s;
@@ -127,7 +127,11 @@ int main(){
         }
     }
     //GENERO IL DIRETTORE
-
+    pthread_t id_dir = 1;
+    if(pthread_create(&id_dir,NULL,DirettoreClienti,NULL) != 0){
+        fprintf(stderr,"Errore creazione thread direttore");
+        exit(EXIT_FAILURE);
+    }
     //QUI AVVERRÀ IL PROGRAMMA
     while(sighup == 0 && sigquit == 0){
         break;
@@ -149,6 +153,10 @@ int main(){
         }
     }
     //JOIN DIRETTORE
+    if(pthread_join(id_dir,NULL) != 0){
+        fprintf(stderr,"Errore join thread direttore");
+        exit(EXIT_FAILURE);
+    }
     free(thids);
     free(id_casse);
     free(cassieri);
@@ -233,6 +241,7 @@ void *Cassiere(void *arg){
         while(codeCassieriVuote[((cassiere *)arg)->id - 1]){
             pthread_cond_wait(&condFlagCodeVuoteCassieri[((cassiere *)arg)->id - 1],&mutexFlagCodeVuoteCassieri[((cassiere *)arg)->id - 1]);
         }
+        pthread_mutex_unlock(&mutexFlagCodeVuoteCassieri[((cassiere *)arg)->id - 1]);
         //Se la coda non è vuota, allora attendo il tempo costante random del cassiere
         //converto il tempo fisso in nanosecondi
         long nanoSec = ((cassiere *)arg)->tempoFisso * 1000000000;
@@ -243,6 +252,7 @@ void *Cassiere(void *arg){
         if(!isEmpty(*codeCassieri[((cassiere *)arg)->id - 1])){
             //prendo il cliente attuale
             client attuale = (codeCassieri[((cassiere *)arg)->id - 1]->head)->c;
+            pthread_mutex_unlock(&mutexCodeCassieri[((cassiere *)arg)->id - 1]);
             //converto in nanosecondi il tempo prodotto
             long nanoSec2 = ((cassiere *)arg)->tempoProdotto * 1000000000;
             struct timespec t2 = {0,nanoSec2};
@@ -255,17 +265,127 @@ void *Cassiere(void *arg){
             }
             /*fprintf(stdout,"Cliente numero %d è stato SERVITO dal cassiere %d\n",attuale.id,((cassiere *)arg)->id);
             fflush(stdout);*/
+            //Inserisco i clienti che ho servito via via nella coda del direttore:
+            pthread_mutex_lock(&mutexCodaDirettore);
+            enqueue(codaDirettore,attuale);
+            pthread_mutex_unlock(&mutexCodaDirettore);
+
+            pthread_mutex_lock(&mutexFlagCodaVuotaDirettore);
+            codaDirettoreVuota = 0;
+            pthread_mutex_unlock(&mutexFlagCodaVuotaDirettore);
+            pthread_cond_signal(&condFlagCodaVuotaDirettore);
+            pthread_mutex_lock(&mutexCodeCassieri[((cassiere *)arg)->id - 1]);
             dequeue(codeCassieri[((cassiere *)arg)->id - 1]);
+            pthread_mutex_unlock(&mutexCodeCassieri[((cassiere *)arg)->id - 1]);
         }else{
+            pthread_mutex_lock(&mutexFlagCodeVuoteCassieri[((cassiere *)arg)->id - 1]);
             codeCassieriVuote[((cassiere *)arg)->id - 1] = 1;
         }
-        pthread_cond_signal(&condFlagCodeVuoteCassieri[((cassiere *)arg)->id - 1]);
         pthread_mutex_unlock(&mutexCodeCassieri[((cassiere *)arg)->id - 1]);
+        pthread_cond_signal(&condFlagCodeVuoteCassieri[((cassiere *)arg)->id - 1]);
         pthread_mutex_unlock(&mutexFlagCodeVuoteCassieri[((cassiere *)arg)->id - 1]);
     }
     return NULL;
 }
 
+void *DirettoreClienti(void *arg){
+    client *clientiUscenti = malloc(sizeof(client)*cfg.E);
+    int k=0;
+    fprintf(stdout,"Thread Direttore avviato!\n");
+    fflush(stdout);
+    while(1){
+        //se la coda è vuota si mette in attesa
+        pthread_mutex_lock(&mutexFlagCodaVuotaDirettore);
+        while(codaDirettoreVuota){
+            pthread_cond_wait(&condFlagCodaVuotaDirettore,&mutexFlagCodaVuotaDirettore);
+        }
+        pthread_mutex_unlock(&mutexFlagCodaVuotaDirettore);
+        //Se la coda non è vuota il direttore fa il lock, perchè la deve svuotare pian piano
+        pthread_mutex_lock(&mutexCodaDirettore);
+        if(!isEmpty(*codaDirettore)){
+            //Se la coda non è vuota, prendo il cliente attuale e lo metto nell'array,
+            //per preservare il suo id
+            //Quindi se la coda non è vuota, prendo il cliente attuale:
+            client attuale = (codaDirettore->head)->c;
+            //lo metto nell'array degli uscenti
+            clientiUscenti[k].id = attuale.id;
+            //incremento k
+            k++;
+            //tolgo il cliente dalla coda
+            dequeue(codaDirettore);
+            pthread_mutex_unlock(&mutexCodaDirettore);
+            if(k==cfg.E){
+                client *cl = malloc(sizeof(client)*k);
+                pthread_t *thids = malloc(sizeof(pthread_t)*k);
+                //Genero cfg->C clienti
+                for(int i=0;i<k;i++){
+                    //DEVO RIESEGUIRE LE PROCEDURE DI CLIENTE*
+                    //Assegno il numero di prodotti da acquistare in modo casuale (da 0 a P)
+                    unsigned int seed1 = clientiUscenti[i].id + time(NULL);
+                    long r = generaProdotto(seed1);
+                    cl[i].id = clientiUscenti[i].id;
+                    cl[i].numProd = (int)r;
+                    //Assegno il tempo per acquistare i prodotti (da 10 a T)
+                    unsigned int seed2 = cl[i].id + time(NULL);
+                    r = generaTempoAcquisto(seed2);
+                    cl[i].tempoAcquisto = (float)r/1000;
+
+                    fprintf(stderr,"Il cliente %d acquisterà %d prodotti in %.3f secondi\n",cl[i].id, cl[i].numProd,cl[i].tempoAcquisto);
+                    fflush(stdout);
+
+                    long nanoSec = cl[i].tempoAcquisto * 1000000000;
+                    //creo la struttura per i nanosecondi:
+                    struct timespec t = {0, nanoSec};
+                    nanosleep(&t,NULL);
+                    if(cl[i].numProd == 0){
+                        //direttore
+                        //penso alla coda
+                        pthread_mutex_lock(&mutexCodaDirettore);
+                        enqueue(codaDirettore,cl[i]);
+                        pthread_mutex_unlock(&mutexCodaDirettore);
+                        //penso al flag
+                        pthread_mutex_lock(&mutexFlagCodaVuotaDirettore);
+                        codaDirettoreVuota = 0;
+                        pthread_cond_signal(&condFlagCodaVuotaDirettore);
+                        pthread_mutex_unlock(&mutexFlagCodaVuotaDirettore);
+                    }else{
+                        //cassiere
+                        //Va scelto il cassiere:
+                        //Conto le casse aperte:
+                        //Per accedere a cassieri che ora è globale devo farlo in mutua esclusione:
+                        pthread_mutex_lock(&mutexCassieri);
+                        int max = contaCasseAperte(cassieri);
+                        //genero un array con sole le casse aperte
+                        cassiere *casseOpen = casseAperte(cassieri, max);
+                        pthread_mutex_unlock(&mutexCassieri);
+                        
+                        //Ora mi creo un seed
+                        unsigned int seed3 = cl[i].id + time(NULL);
+                        long cas = generaCassiere(seed3,max);
+                        //Penso alla coda scelta
+                        pthread_mutex_lock(&mutexCodeCassieri[casseOpen[cas].id]);
+                        enqueue(codeCassieri[casseOpen[cas].id],cl[i]);
+                        pthread_mutex_unlock(&mutexCodeCassieri[casseOpen[cas].id]);
+                        //penso al flag
+                        pthread_mutex_lock(&mutexFlagCodeVuoteCassieri[casseOpen[cas].id]);
+                        codeCassieriVuote[casseOpen[cas].id] = 0;
+                        pthread_cond_signal(&condFlagCodeVuoteCassieri[casseOpen[cas].id]);
+                        pthread_mutex_unlock(&mutexFlagCodeVuoteCassieri[casseOpen[cas].id]);
+                    }
+                }
+                k=0;
+            }
+        }else{
+            pthread_mutex_lock(&mutexFlagCodaVuotaDirettore);
+            codaDirettoreVuota = 1;
+        }
+        pthread_mutex_unlock(&mutexCodaDirettore);
+        pthread_cond_signal(&condFlagCodaVuotaDirettore);
+        pthread_mutex_unlock(&mutexFlagCodaVuotaDirettore);
+
+    }
+    return NULL;
+}
 static void handler(int signum){
     if(signum == 1){
         //SIGHUP
