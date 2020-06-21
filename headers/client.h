@@ -33,3 +33,32 @@ long generaTempoAcquisto(unsigned int seed){
     //fprintf(stdout,"Ciao Acquisto %lu\n",r);
     return r;
 }
+int contaCasseAperte(cassiere *c){
+    int count =0;
+    for(int i=0;i<cfg.K;i++){
+        if(c->cassaAperta == 1){
+            count++;
+        }
+    }
+    return count;
+}
+
+cassiere *casseAperte(cassiere *c, int count){
+    cassiere *cOpen = malloc(sizeof(cassiere)*count);
+    int k=0;
+    int tmp = 0;
+    for(int i=0;i<cfg.K;i++){
+        if(c[i].cassaAperta == 1){
+            tmp = c[i].id;
+            tmp--;
+            cOpen[k].id = tmp;
+            k++;
+        }
+    }
+    return cOpen;
+}
+
+long generaCassiere(unsigned int seed, int max){
+    long r = rand_r(&seed)%(max);
+    return r;
+}

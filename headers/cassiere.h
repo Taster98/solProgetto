@@ -24,7 +24,7 @@ void inizializzaCassiere(cassiere *c,int id){
     c->tempoProdotto = cfg.S/1000;
     c->tempoMedioCliente = 0;
     c->tempoApertura = 0;
-    c->cassaAperta = 0;
+    c->cassaAperta = 1;
     c->numeroChiusure =0;
 }
 
