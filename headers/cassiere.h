@@ -21,7 +21,7 @@ void inizializzaCassiere(cassiere *c,int id){
     long r = randomFisso(seed);
     //tempo convertito in secondi
     c->tempoFisso = (float)r/1000;
-    c->tempoProdotto = cfg.S;
+    c->tempoProdotto = cfg.S/1000;
     c->tempoMedioCliente = 0;
     c->tempoApertura = 0;
     c->cassaAperta = 0;
