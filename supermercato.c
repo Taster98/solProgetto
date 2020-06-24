@@ -109,6 +109,10 @@ int main(){
     struct sigaction s;
     memset(&s,0,sizeof(s));
     s.sa_handler=handler;
+    sigset_t handlerMask;
+    ec_meno1(sigemptyset(&handlerMask), "Errore nello svuotare la handlerMask\n");
+    ec_meno1(sigaddset(&handlerMask, SIGHUP), "Errore nell'aggiunta di SIGHUP\n");
+    ec_meno1(sigaddset(&handlerMask, SIGQUIT), "Errore nell'aggiunta di SIGQUIT\n");
     ec_meno1(sigaction(SIGHUP,&s,NULL),"Errore segnale di SIGHUP");
     ec_meno1(sigaction(SIGQUIT,&s,NULL),"Errore segnale di SIGQUIT");
     //inizializzo il config (che poi leggerà dal file config.txt)
@@ -154,6 +158,8 @@ int main(){
     free(condCodeCassieri);
     free(flagCodeCassieri);
     //FREE SINGOLE CODE
+    fprintf(stdout,"\n\nFINISHED\n\n");
+    fflush(stdout);
     return 0;
 }
 
@@ -219,7 +225,7 @@ void *Cassiere(void *arg){
     int numProdElab = 0;
     int numClientiElab = 0;
     float tempoCoda = 0;
-    while(1){
+    while(sighup==0 && sigquit==0){
         //Se la cassa è chiusa, non faccio nulla:
         pthread_mutex_lock(&mutexCasseChiuse[((cassiere *)arg)->id - 1]);
         while(casseChiuse[((cassiere *)arg)->id - 1]){
@@ -345,7 +351,7 @@ void *DirettoreClienti(void *arg){
     }
     client *clientiUscenti = malloc(sizeof(client)*cfg.E);
     int k=0;
-    while(1){
+    while(sighup==0 && sigquit==0){
         //se la coda è vuota si mette in attesa
         pthread_mutex_lock(&mutexFlagCodaVuotaDirettore);
         while(codaDirettoreVuota){
@@ -447,7 +453,7 @@ void *DirettoreClienti(void *arg){
 }
 
 void *TimerCassa(void *arg){
-    while(1){
+    while(sighup==0 && sigquit==0){
          //Se chiusa, wait fino a che Direttore non dice di aprire (wait)
         pthread_mutex_lock(&mutexCasseChiuse[((cassiere *)arg)->id - 1]);
         while(casseChiuse[((cassiere *)arg)->id - 1]){
@@ -473,6 +479,7 @@ void *TimerCassa(void *arg){
         pthread_cond_signal(&condFlagInfoCasse);
         pthread_mutex_unlock(&mutexFlagInfoCasse);
     }
+    pthread_exit(NULL);
 }
 
 void *DirettoreCasse(void *arg){
@@ -490,12 +497,14 @@ void *DirettoreCasse(void *arg){
             fprintf(stderr,"Errore creazione thread cassiere %d-esimo",i);
             exit(EXIT_FAILURE);
         }
+        id_casse[i] += cfg.K; 
         if(pthread_create(&id_casse[i],NULL,TimerCassa,&cassieri[i]) != 0){
             fprintf(stderr,"Errore creazione thread TimerCassa %d-esimo",i);
             exit(EXIT_FAILURE);
         }
+        id_casse[i] -= cfg.K;
     }
-    while(1){
+    while(sighup==0 && sigquit==0){
         int a = -1;
         int info = 0;
         //Attendo che mi arrivi un segnale
@@ -606,26 +615,31 @@ void *DirettoreCasse(void *arg){
     }
             //JOIN CASSIERI
     for(int i=0;i<cfg.K;i++){
+        fprintf(stdout,"CASSE PORCHE\n");
+        fflush(stdout);
         if(pthread_join(id_casse[i], NULL) != 0){
             fprintf(stderr,"Errore join thread cassiere %d-esimo",i);
             exit(EXIT_FAILURE);
         }
-        if(pthread_join(id_casse[i], NULL) != 0){
-            fprintf(stderr,"Errore join thread TimerCassa %d-esimo",i);
+        if(pthread_join(id_casse[i]+cfg.K, NULL) != 0){
+            fprintf(stderr,"Errore join thread cassiere %d-esimo",i);
             exit(EXIT_FAILURE);
         }
     }
     free(id_casse);
+    return NULL;
 }
 void handler(int signum){
     if(signum == 3){
         //SIGQUIT
         fprintf(stdout,"RICEVUTO SEGNALE SIGQUIT\n");
-        exit(EXIT_SUCCESS);
+        sigquit = 1;
+        //exit(EXIT_SUCCESS);
     }else if(signum == 1){
         //SIGHUP
         fprintf(stdout,"RICEVUTO SEGNALE SIGHUP\n");
-        exit(EXIT_SUCCESS);
+        sighup = 1;
+        //exit(EXIT_SUCCESS);
     }
 }
 
