@@ -115,82 +115,31 @@ int main(){
     inizializzaConfig();
     //inizializzo la coda del direttore dei clienti che non acquistano
     codaDirettore = creaCoda();
-    //GENERO I CASSIERI
-    pthread_t *id_casse = malloc(sizeof(pthread_t)*cfg.K);
-    cassieri = malloc(sizeof(cassiere)*cfg.K);
-    initCassieri();
-    for(int i=0;i<cfg.K;i++){
-        id_casse[i] = i;
-        inizializzaCassiere(&cassieri[i],id_casse[i]);
-        if(i<cfg.casse_iniziali){
-            apriCassa(&cassieri[i]);
-        }
-        if(pthread_create(&id_casse[i],NULL,Cassiere,&cassieri[i]) != 0){
-            fprintf(stderr,"Errore creazione thread cassiere %d-esimo",i);
-            exit(EXIT_FAILURE);
-        }
-        if(pthread_create(&id_casse[i],NULL,TimerCassa,&cassieri[i]) != 0){
-            fprintf(stderr,"Errore creazione thread TimerCassa %d-esimo",i);
-            exit(EXIT_FAILURE);
-        }
-    }
-    //Genero cfg->C clienti
-    client *cl = malloc(sizeof(client)*cfg.C);
-    pthread_t *thids = malloc(sizeof(pthread_t)*cfg.C);
-    for(int i=0;i<cfg.C;i++){
-        thids[i] = i;
-        inizializzaCliente(&cl[i],i);
-        if(pthread_create(&thids[i],NULL,Cliente,&cl[i]) != 0){
-            fprintf(stderr,"Errore creazione thread %d-esimo",i);
-            exit(EXIT_FAILURE);
-        }
-    }
-    //GENERO IL DIRETTORE
-    pthread_t id_dir = 1;
-    if(pthread_create(&id_dir,NULL,DirettoreClienti,NULL) != 0){
-        fprintf(stderr,"Errore creazione thread direttore");
-        exit(EXIT_FAILURE);
-    }
     //Genero il sottothread DirettoreCasse
     pthread_t id_dir2 = 1;
     int numeroACaso = 7;
     if(pthread_create(&id_dir2,NULL,DirettoreCasse,&numeroACaso) != 0){
-        fprintf(stderr,"Errore creazione thread Direttore Cassa");
+        fprintf(stderr,"Errore creazione thread direttore casse");
         exit(EXIT_FAILURE);
     }
-    //QUI AVVERRÀ IL PROGRAMMA
-    while(sighup == 0 && sigquit == 0){
-        break;
+    //GENERO IL DIRETTORE CLIENTI
+    pthread_t id_dir = 2;
+    if(pthread_create(&id_dir,NULL,DirettoreClienti,NULL) != 0){
+        fprintf(stderr,"Errore creazione thread direttore clienti");
+        exit(EXIT_FAILURE);
+    }
+    //JOIN DIRETTORE CLIENTI
+    if(pthread_join(id_dir,NULL) != 0){
+        fprintf(stderr,"Errore join thread direttore clienti");
+        exit(EXIT_FAILURE);
+    }
+    //JOIN DIRETTORE CASSE
+    if(pthread_join(id_dir2,NULL) != 0){
+        fprintf(stderr,"Errore join thread direttore casse");
+        exit(EXIT_FAILURE);
     }
 
-    //JOIN CASSIERI
-    for(int i=0;i<cfg.K;i++){
-        if(pthread_join(id_casse[i], NULL) != 0){
-            fprintf(stderr,"Errore join thread cassiere %d-esimo",i);
-            exit(EXIT_FAILURE);
-        }
-        if(pthread_join(id_casse[i], NULL) != 0){
-            fprintf(stderr,"Errore join thread TimerCassa %d-esimo",i);
-            exit(EXIT_FAILURE);
-        }
-    }
-    //JOIN CLIENTI
-    for(int i=0;i<cfg.C;i++){
-        int status;
-        if(pthread_join(thids[i],(void *)&status) != 0){
-            fprintf(stderr,"Errore join thread %d-esimo",i);
-            exit(EXIT_FAILURE);
-        }
-    }
-    //JOIN DIRETTORE
-    if(pthread_join(id_dir,NULL) != 0){
-        fprintf(stderr,"Errore join thread direttore");
-        exit(EXIT_FAILURE);
-    }
-    free(thids);
-    free(id_casse);
     free(cassieri);
-    free(cl);
     free(codaDirettore);
     free(codeCassieri);
     free(mutexCodeCassieri);
@@ -383,6 +332,17 @@ void *Cassiere(void *arg){
 }
 
 void *DirettoreClienti(void *arg){
+    //Genero cfg->C clienti
+    client *cl = malloc(sizeof(client)*cfg.C);
+    pthread_t *thids = malloc(sizeof(pthread_t)*cfg.C);
+    for(int i=0;i<cfg.C;i++){
+        thids[i] = i;
+        inizializzaCliente(&cl[i],i);
+        if(pthread_create(&thids[i],NULL,Cliente,&cl[i]) != 0){
+            fprintf(stderr,"Errore creazione thread %d-esimo",i);
+            exit(EXIT_FAILURE);
+        }
+    }
     client *clientiUscenti = malloc(sizeof(client)*cfg.E);
     int k=0;
     while(1){
@@ -473,6 +433,16 @@ void *DirettoreClienti(void *arg){
         pthread_mutex_unlock(&mutexFlagCodaVuotaDirettore);
 
     }
+    //JOIN CLIENTI
+    for(int i=0;i<cfg.C;i++){
+        int status;
+        if(pthread_join(thids[i],(void *)&status) != 0){
+            fprintf(stderr,"Errore join thread %d-esimo",i);
+            exit(EXIT_FAILURE);
+        }
+    }
+    free(thids);
+    free(cl);
     return NULL;
 }
 
@@ -506,6 +476,25 @@ void *TimerCassa(void *arg){
 }
 
 void *DirettoreCasse(void *arg){
+        //GENERO I CASSIERI
+    pthread_t *id_casse = malloc(sizeof(pthread_t)*cfg.K);
+    cassieri = malloc(sizeof(cassiere)*cfg.K);
+    initCassieri();
+    for(int i=0;i<cfg.K;i++){
+        id_casse[i] = i;
+        inizializzaCassiere(&cassieri[i],id_casse[i]);
+        if(i<cfg.casse_iniziali){
+            apriCassa(&cassieri[i]);
+        }
+        if(pthread_create(&id_casse[i],NULL,Cassiere,&cassieri[i]) != 0){
+            fprintf(stderr,"Errore creazione thread cassiere %d-esimo",i);
+            exit(EXIT_FAILURE);
+        }
+        if(pthread_create(&id_casse[i],NULL,TimerCassa,&cassieri[i]) != 0){
+            fprintf(stderr,"Errore creazione thread TimerCassa %d-esimo",i);
+            exit(EXIT_FAILURE);
+        }
+    }
     while(1){
         int a = -1;
         int info = 0;
@@ -615,6 +604,18 @@ void *DirettoreCasse(void *arg){
         pthread_cond_signal(&condFlagInfoCasse);
         pthread_mutex_unlock(&mutexFlagInfoCasse);
     }
+            //JOIN CASSIERI
+    for(int i=0;i<cfg.K;i++){
+        if(pthread_join(id_casse[i], NULL) != 0){
+            fprintf(stderr,"Errore join thread cassiere %d-esimo",i);
+            exit(EXIT_FAILURE);
+        }
+        if(pthread_join(id_casse[i], NULL) != 0){
+            fprintf(stderr,"Errore join thread TimerCassa %d-esimo",i);
+            exit(EXIT_FAILURE);
+        }
+    }
+    free(id_casse);
 }
 void handler(int signum){
     if(signum == 3){
