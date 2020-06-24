@@ -24,7 +24,7 @@ void inizializzaCassiere(cassiere *c,int id){
     c->tempoProdotto = cfg.S/1000;
     c->tempoMedioCliente = 0;
     c->tempoApertura = 0;
-    c->cassaAperta = 1;
+    c->cassaAperta = 0;
     c->numeroChiusure =0;
 }
 
@@ -36,7 +36,7 @@ void chiudiCassa(cassiere *c){
     //STAMPA TUTTE LE INFO:
     //| ID_CASSA | N_PROD_ELABORATI | N_CLIENTI | TEMPO_TOT_APERTURA | TEMPO_MEDIO | N_CHIUSURE |
     c->cassaAperta = 0;
-    ++c->numeroChiusure;
+    (c->numeroChiusure)++;
     c->numClients = 0;
     c->numProd = 0;
     c->tempoMedioCliente = 0;

@@ -22,6 +22,7 @@ elem *creaElem(client tmp){
 coda *creaCoda(){
     coda *q = (coda*)malloc(sizeof(coda));
     q->head = q->tail = NULL;
+    q->dim=0;
     return q;
 }
 
@@ -38,6 +39,8 @@ void enqueue(coda *q, client tmp){
         q->tail->next = e;
         q->tail = e;
     }
+    //incremento la dimensione
+    q->dim++;
 }
 
 int isEmpty(coda q){
@@ -59,6 +62,8 @@ void dequeue(coda *q){
             q->tail = NULL;
 
         free(tmp);
+        //decremento la dimensione
+        q->dim--;
     }
 }
 

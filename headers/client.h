@@ -36,7 +36,7 @@ long generaTempoAcquisto(unsigned int seed){
 int contaCasseAperte(cassiere *c){
     int count =0;
     for(int i=0;i<cfg.K;i++){
-        if(c->cassaAperta == 1){
+        if(c[i].cassaAperta == 1){
             count++;
         }
     }
@@ -58,7 +58,7 @@ cassiere *casseAperte(cassiere *c, int count){
     return cOpen;
 }
 
-long generaCassiere(unsigned int seed, int max){
-    long r = rand_r(&seed)%(max);
+long generaCassiere(unsigned int *seed, int max){
+    long r = rand_r(seed)%(max);
     return r;
 }
