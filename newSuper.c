@@ -196,12 +196,100 @@ void *DirettoreCasse(void *arg){
     }
     //Creo un array di id_
     while(sigquit == 0 && sighup == 0){
-        break;
         pthread_mutex_lock(&mutexInformazioni);
         while(informazioniRicevute()==0  && sighup==0 && sigquit==0){
             pthread_cond_wait(&condInformazioni,&mutexInformazioni);
         }
         pthread_mutex_unlock(&mutexInformazioni);
+        if(sighup || sigquit) break;
+        //Se sono qui, tutte le casse aperte mi hanno mandato un segnale,
+        //Con le informazioni aggiornate sulle code relative.
+        //Cosa faccio? Controllo ora S1 e S2:
+        //Prima però conto le casse aperte, perchè se ce n'è una sola aperta, esseUno non vale,
+        //se invece ce ne sono già cfg.K esseDue non vale.
+        int cOpen;
+        pthread_mutex_lock(&mutexCasse);
+        cOpen = contaCasseAperte(casse);
+        pthread_mutex_unlock(&mutexCasse);
+        if(esseUno() && cOpen >1){
+            //Conto le casse aperte
+            pthread_mutex_lock(&mutexCasse);
+            int max = contaCasseAperte(casse);
+            pthread_mutex_unlock(&mutexCasse);
+            if(max==0) break; //segnale
+            //Se max è maggiore di 0 mi creo un array di casse aperte:
+            int *aperte = malloc(sizeof(int)*max);
+            int k=0;
+            for(int i=0;i<cfg.K;i++){
+                pthread_mutex_lock(&mutexCasseChiuse[i]);
+                if(casseChiuse[i] == 0){
+                    aperte[k] = i;
+                    k++;
+                }
+                pthread_mutex_unlock(&mutexCasseChiuse[i]);
+            }
+            unsigned int seed = *(int *)arg + time(NULL);
+            int r = (int)rand_r(&seed)%(max);
+            //Salvo la cassa:
+            cassiere cassaAux;
+            pthread_mutex_lock(&mutexCasse);
+            chiudiCassa(&casse[aperte[r]]);
+            cassaAux = casse[aperte[r]];
+            pthread_mutex_unlock(&mutexCasse);
+
+            pthread_mutex_lock(&mutexCasseChiuse[aperte[r]]);
+            casseChiuse[aperte[r]] = 1;
+            pthread_cond_signal(&condCasseChiuse[aperte[r]]);
+            pthread_mutex_unlock(&mutexCasseChiuse[aperte[r]]);
+            pthread_mutex_lock(&mutexInformazioni);
+            arrayInformazioni[aperte[r]] = -2;
+            pthread_cond_signal(&condInformazioni);
+            pthread_mutex_unlock(&mutexInformazioni);
+            *(int *)arg = (*(int *)arg +7)%191;
+            free(aperte);
+            if(cassaAux.numClients != 0){
+                pthread_mutex_lock(&mutexLogFile);
+                fprintf(stdout,"| ID CASSA: %d | N. PROD. ELAB.: %d | N. Clienti: %d | TEMPO TOT: %.3f s | TEMPO MEDIO: %.3f s | N. CHIUSURE: %d |\n",cassaAux.id, cassaAux.numProd, cassaAux.numClients, cassaAux.tempoApertura, cassaAux.tempoApertura/cassaAux.numClients, cassaAux.numeroChiusure);
+                fflush(stdout);
+                pthread_mutex_unlock(&mutexLogFile);
+            }
+        }
+        if(esseDue() && cOpen<cfg.K){
+            //Conto le casse aperte
+            pthread_mutex_lock(&mutexCasse);
+            int max = contaCasseAperte(casse);
+            pthread_mutex_unlock(&mutexCasse);
+            if(max==0) break; //segnale
+            int realmax = cfg.K-max;
+            if(realmax==0) break; //già tutte aperte, anche se non dovrebbe succedere per il controllo esseDue
+            int *chiuse = malloc(sizeof(int)*max);
+            int k=0;
+            for(int i=0;i<cfg.K;i++){
+                pthread_mutex_lock(&mutexCasseChiuse[i]);
+                if(casseChiuse[i] == 1){
+                    chiuse[k] = i;
+                    k++;
+                }
+                pthread_mutex_unlock(&mutexCasseChiuse[i]);
+            }
+            unsigned int seed = *(int *)arg + time(NULL);
+            int r = (int)rand_r(&seed)%(max);
+            pthread_mutex_lock(&mutexCasse);
+            apriCassa(&casse[chiuse[r]]);
+            pthread_mutex_unlock(&mutexCasse);
+
+            pthread_mutex_lock(&mutexCasseChiuse[chiuse[r]]);
+            casseChiuse[chiuse[r]] = 0;
+            pthread_cond_signal(&condCasseChiuse[chiuse[r]]);
+            pthread_mutex_unlock(&mutexCasseChiuse[chiuse[r]]);
+
+            pthread_mutex_lock(&mutexInformazioni);
+            arrayInformazioni[chiuse[r]] = -1;
+            pthread_cond_signal(&condInformazioni);
+            pthread_mutex_unlock(&mutexInformazioni);
+            *(int *)arg = (*(int *)arg +3)%79;
+            free(chiuse);
+        }
     }
     
     //Se sono uscito, attendo il termine dei thread timer e casse.
@@ -232,7 +320,6 @@ void *DirettoreClienti(void *arg){
     }
     int *clientiUscenti = malloc(sizeof(int)*cfg.E);
     int k=0;
-    int contatore = 0;
     while(sighup == 0 && sigquit == 0){
         pthread_mutex_lock(&mutexCodaDirettore);
         while(isEmpty(*codaDirettore) && sighup==0 && sigquit==0){
@@ -347,18 +434,18 @@ NOTE:
 Se la cassa viene chiusa e se ci sono dei clienti in coda, il cassiere invece di servire i clienti
 successivi li fa spostare in una delle altre casse aperte. Le casse sono cfg.K.*/
 void *Casse(void *arg){
-    float tempoTot = 0;
-    int numProdElab =0;
-    int numClientiElab = 0;
+    ((cassiere *)arg)->tempoApertura=0;
+    ((cassiere *)arg)->numProd=0;
+    ((cassiere *)arg)->numClients=0;
     float tempoCoda = 0;
     //Devo elaborare i clienti alla mia coda fino a che non ricevo un segnale
     while(sighup == 0 && sigquit==0){
         //RIMANGO IN ATTESA FINCHÈ SON CHIUSA:
         pthread_mutex_lock(&mutexCasseChiuse[((cassiere *)arg)->id -1]);
         while(casseChiuse[((cassiere *)arg)->id -1] && sighup==0 && sigquit==0){
-            tempoTot=0;
-            numProdElab =0;
-            numClientiElab =0;
+            ((cassiere *)arg)->tempoApertura=0;
+            ((cassiere *)arg)->numProd=0;
+            ((cassiere *)arg)->numClients=0;
             tempoCoda = 0;
             pthread_cond_wait(&condCasseChiuse[((cassiere *)arg)->id -1],&mutexCasseChiuse[((cassiere *)arg)->id -1]);
         }
@@ -378,7 +465,7 @@ void *Casse(void *arg){
         //Attendo il mio tempo fisso
         //converto il tempo fisso in nanosecondi
         long nanoSec = ((cassiere *)arg)->tempoFisso * 1000000000;
-        tempoTot = tempoTot + ((cassiere *)arg)->tempoFisso;
+        ((cassiere *)arg)->tempoApertura = ((cassiere *)arg)->tempoApertura + ((cassiere *)arg)->tempoFisso;
         tempoCoda = tempoCoda + ((cassiere *)arg)->tempoFisso;
         struct timespec t = {0, nanoSec};
         nanosleep(&t,NULL);
@@ -386,13 +473,13 @@ void *Casse(void *arg){
         pthread_mutex_lock(&mutexCodeCassieri[((cassiere *)arg)->id -1]);
         if(!isEmpty(*codeCassieri[((cassiere *)arg)->id -1])){
             client attuale = codeCassieri[((cassiere *)arg)->id -1]->head->c;
-            numClientiElab++;
+            (((cassiere *)arg)->numClients)++;
             pthread_mutex_unlock(&mutexCodeCassieri[((cassiere *)arg)->id -1]);
             //Attendo il tempo del prodotto per numProdotti volte:
             long nanoSec2 = ((cassiere *)arg)->tempoProdotto * 1000000000;
-            tempoTot = tempoTot + ((cassiere *)arg)->tempoProdotto *attuale.numProd;
+            ((cassiere *)arg)->tempoApertura = ((cassiere *)arg)->tempoApertura + ((cassiere *)arg)->tempoProdotto *attuale.numProd;
             tempoCoda = tempoCoda + ((cassiere *)arg)->tempoProdotto *attuale.numProd;
-            numProdElab = numProdElab + attuale.numProd;
+            ((cassiere *)arg)->numProd = ((cassiere *)arg)->numProd + attuale.numProd;
             struct timespec t2 = {0,nanoSec2};
             //Ora attendo ((cassiere *)arg)->tempoProdotto per un ciclo che va da 0 a attuale->numProd
             for(int i=0;i<attuale.numProd;i++){
@@ -449,7 +536,7 @@ void *Casse(void *arg){
                 pthread_mutex_unlock(&mutexCodeCassieri[((cassiere *)arg)->id -1]);
                 //Ora scrivo lo stato della cassa, nel logFile:
                 pthread_mutex_lock(&mutexLogFile);
-                fprintf(stdout,"| ID CASSA: %d | N. PROD. ELAB.: %d | N. Clienti: %d | TEMPO TOT: %.3f s | TEMPO MEDIO: %.3f s | N. CHIUSURE: %d |\n",((cassiere *)arg)->id, numProdElab, numClientiElab, tempoTot, tempoTot/numClientiElab, ((cassiere *)arg)->numeroChiusure);
+                fprintf(stdout,"| ID CASSA: %d | N. PROD. ELAB.: %d | N. Clienti: %d | TEMPO TOT: %.3f s | TEMPO MEDIO: %.3f s | N. CHIUSURE: %d |\n",((cassiere *)arg)->id, ((cassiere *)arg)->numProd, ((cassiere *)arg)->numClients, ((cassiere *)arg)->tempoApertura, ((cassiere *)arg)->tempoApertura/((cassiere *)arg)->numClients, ((cassiere *)arg)->numeroChiusure);
                 fflush(stdout);
                 pthread_mutex_unlock(&mutexLogFile);
             }
@@ -470,7 +557,7 @@ void *Casse(void *arg){
         if(!chiusa){
             //Attendo il tempo fisso
             long nanoSec = ((cassiere *)arg)->tempoFisso * 1000000000;
-            tempoTot = tempoTot + ((cassiere *)arg)->tempoFisso;
+            ((cassiere *)arg)->tempoApertura = ((cassiere *)arg)->tempoApertura + ((cassiere *)arg)->tempoFisso;
             tempoCoda = tempoCoda + ((cassiere *)arg)->tempoFisso;
             struct timespec t = {0, nanoSec};
             nanosleep(&t,NULL);
@@ -481,12 +568,12 @@ void *Casse(void *arg){
             while(!isEmpty(*codeCassieri[((cassiere *)arg)->id -1])){
                 stampa = 1;
                 client attuale = codeCassieri[((cassiere *)arg)->id -1]->head->c;
-                numClientiElab++;
+                (((cassiere *)arg)->numClients)++;
                 //Attendo il tempo del prodotto per numProdotti volte:
                 long nanoSec2 = ((cassiere *)arg)->tempoProdotto * 1000000000;
-                tempoTot = tempoTot + ((cassiere *)arg)->tempoProdotto *attuale.numProd;
+                ((cassiere *)arg)->tempoApertura = ((cassiere *)arg)->tempoApertura + ((cassiere *)arg)->tempoProdotto *attuale.numProd;
                 tempoCoda = tempoCoda + ((cassiere *)arg)->tempoProdotto *attuale.numProd;
-                numProdElab = numProdElab + attuale.numProd;
+                ((cassiere *)arg)->numProd = ((cassiere *)arg)->numProd + attuale.numProd;
                 struct timespec t2 = {0,nanoSec2};
                 //Ora attendo ((cassiere *)arg)->tempoProdotto per un ciclo che va da 0 a attuale->numProd
                 for(int i=0;i<attuale.numProd;i++){
@@ -510,7 +597,7 @@ void *Casse(void *arg){
             if(stampa){
                 //Ora scrivo lo stato della cassa, nel logFile:
                 pthread_mutex_lock(&mutexLogFile);
-                fprintf(stdout,"| ID CASSA: %d | N. PROD. ELAB.: %d | N. Clienti: %d | TEMPO TOT: %.3f s | TEMPO MEDIO: %.3f s | N. CHIUSURE: %d |\n",((cassiere *)arg)->id, numProdElab, numClientiElab, tempoTot, tempoTot/numClientiElab, ((cassiere *)arg)->numeroChiusure);
+                fprintf(stdout,"| ID CASSA: %d | N. PROD. ELAB.: %d | N. Clienti: %d | TEMPO TOT: %.3f s | TEMPO MEDIO: %.3f s | N. CHIUSURE: %d |\n",((cassiere *)arg)->id, ((cassiere *)arg)->numProd, ((cassiere *)arg)->numClients, ((cassiere *)arg)->tempoApertura, ((cassiere *)arg)->tempoApertura/((cassiere *)arg)->numClients, ((cassiere *)arg)->numeroChiusure);
                 fflush(stdout);
                 pthread_mutex_unlock(&mutexLogFile);
             }
@@ -525,7 +612,7 @@ void *Casse(void *arg){
         if(!chiusa){
             //Attendo il tempo fisso
             long nanoSec = ((cassiere *)arg)->tempoFisso * 1000000000;
-            tempoTot = tempoTot + ((cassiere *)arg)->tempoFisso;
+            ((cassiere *)arg)->tempoApertura = ((cassiere *)arg)->tempoApertura + ((cassiere *)arg)->tempoFisso;
             tempoCoda = tempoCoda + ((cassiere *)arg)->tempoFisso;
             struct timespec t = {0, nanoSec};
             nanosleep(&t,NULL);
@@ -534,12 +621,12 @@ void *Casse(void *arg){
             if(!isEmpty(*codeCassieri[((cassiere *)arg)->id -1])){
                 stampa=1;
                 client attuale = codeCassieri[((cassiere *)arg)->id -1]->head->c;
-                numClientiElab++;
+                (((cassiere *)arg)->numClients)++;
                 //Attendo il tempo del prodotto per numProdotti volte:
                 long nanoSec2 = ((cassiere *)arg)->tempoProdotto * 1000000000;
-                tempoTot = tempoTot + ((cassiere *)arg)->tempoProdotto *attuale.numProd;
+                ((cassiere *)arg)->tempoApertura = ((cassiere *)arg)->tempoApertura + ((cassiere *)arg)->tempoProdotto *attuale.numProd;
                 tempoCoda = tempoCoda + ((cassiere *)arg)->tempoProdotto *attuale.numProd;
-                numProdElab = numProdElab + attuale.numProd;
+                ((cassiere *)arg)->numProd = ((cassiere *)arg)->numProd + attuale.numProd;
                 struct timespec t2 = {0,nanoSec2};
                 //Ora attendo ((cassiere *)arg)->tempoProdotto per un ciclo che va da 0 a attuale->numProd
                 for(int i=0;i<attuale.numProd;i++){
@@ -563,7 +650,7 @@ void *Casse(void *arg){
             if(stampa){
                 //Ora scrivo lo stato della cassa, nel logFile:
                 pthread_mutex_lock(&mutexLogFile);
-                fprintf(stdout,"| ID CASSA: %d | N. PROD. ELAB.: %d | N. Clienti: %d | TEMPO TOT: %.3f s | TEMPO MEDIO: %.3f s | N. CHIUSURE: %d |\n",((cassiere *)arg)->id, numProdElab, numClientiElab, tempoTot, tempoTot/numClientiElab, ((cassiere *)arg)->numeroChiusure);
+                fprintf(stdout,"| ID CASSA: %d | N. PROD. ELAB.: %d | N. Clienti: %d | TEMPO TOT: %.3f s | TEMPO MEDIO: %.3f s | N. CHIUSURE: %d |\n",((cassiere *)arg)->id, ((cassiere *)arg)->numProd, ((cassiere *)arg)->numClients, ((cassiere *)arg)->tempoApertura, ((cassiere *)arg)->tempoApertura/((cassiere *)arg)->numClients, ((cassiere *)arg)->numeroChiusure);
                 fflush(stdout);
                 pthread_mutex_unlock(&mutexLogFile);
             }
@@ -687,7 +774,7 @@ void inizializzaConfig(){
 
     //TODO: aggiungere anche questi nel config.txt
     cfg.tempo_info = 20;
-    cfg.casse_iniziali = 3;
+    cfg.casse_iniziali = 1;
     cfg.num_clienti = 0;
     cfg.num_prodotti = 0;
 }
