@@ -197,6 +197,11 @@ void *DirettoreCasse(void *arg){
     //Creo un array di id_
     while(sigquit == 0 && sighup == 0){
         break;
+        pthread_mutex_lock(&mutexInformazioni);
+        while(informazioniRicevute()==0  && sighup==0 && sigquit==0){
+            pthread_cond_wait(&condInformazioni,&mutexInformazioni);
+        }
+        pthread_mutex_unlock(&mutexInformazioni);
     }
     
     //Se sono uscito, attendo il termine dei thread timer e casse.
@@ -229,10 +234,67 @@ void *DirettoreClienti(void *arg){
     int k=0;
     int contatore = 0;
     while(sighup == 0 && sigquit == 0){
-        break;
+        pthread_mutex_lock(&mutexCodaDirettore);
+        while(isEmpty(*codaDirettore) && sighup==0 && sigquit==0){
+            pthread_cond_wait(&condCodaDirettore,&mutexCodaDirettore);
+        }
+        pthread_mutex_unlock(&mutexCodaDirettore);
+        if(sighup || sigquit) break;
+        //Se sono qui, devo salvarmi i clienti della coda in un array
+        pthread_mutex_lock(&mutexCodaDirettore);
+        if(!isEmpty(*codaDirettore)){
+            client attuale = codaDirettore->head->c;
+            clientiUscenti[k]= attuale.id;
+            k++;
+            dequeue(codaDirettore);
+            pthread_mutex_unlock(&mutexCodaDirettore);
+            //Controllo se k=cfg.E:
+            if(k==cfg.E){
+                client *clients = malloc(sizeof(client)*cfg.E);
+                for(int i=0;i<k;i++){
+                    unsigned int seed1 = clientiUscenti[i] + time(NULL);
+                    long r = generaProdotto(seed1,cfg.P);
+                    clients[i].id = clientiUscenti[i];
+                    clients[i].numProd = (int)r;
+                    //Assegno il tempo per acquistare i prodotti (da 10 a T)
+                    unsigned int seed2 = clients[i].id + time(NULL);
+                    r = generaTempoAcquisto(seed2,cfg.T);
+                    clients[i].tempoAcquisto = (float)r/1000;
+                    long nanoSec = clients[i].tempoAcquisto * 1000000000;
+                    //creo la struttura per i nanosecondi:
+                    struct timespec t = {0, nanoSec};
+                    nanosleep(&t,NULL);
+                    if(clients[i].numProd==0){
+                        pthread_mutex_lock(&mutexCodaDirettore);
+                        enqueue(codaDirettore,clients[i]);
+                        pthread_cond_signal(&condCodaDirettore);
+                        pthread_mutex_unlock(&mutexCodaDirettore);
+                    }else{
+                        clients[i].numCodeViste++;
+                        pthread_mutex_lock(&mutexCasse);
+                        int max = contaCasseAperte(casse);
+                        //genero un array con sole le casse aperte
+                        cassiere *casseOpen;
+                        if(max>0)
+                            casseOpen = casseAperte(casse, max);
+                        pthread_mutex_unlock(&mutexCasse);
+                        if(max==0) break;//segnale
+
+                        //Ora mi creo un seed
+                        unsigned int seed3 = clients[i].id + time(NULL);
+                        long cas = rand_r(&seed3)%(max);
+                        pthread_mutex_lock(&mutexCodeCassieri[casseOpen[cas].id]);
+                        enqueue(codeCassieri[casseOpen[cas].id],clients[i]);
+                        pthread_cond_signal(&condCodeCassieri[casseOpen[cas].id]);
+                        pthread_mutex_unlock(&mutexCodeCassieri[casseOpen[cas].id]);
+
+                    }
+                }
+                k=0;
+            }
+        }
+        pthread_mutex_unlock(&mutexCodaDirettore);
     }
-    //gestisco sighup
-    
     
     //Joino i clienti
     for(int i=0;i<cfg.C;i++){
