@@ -167,11 +167,11 @@ int main(){
 void *Cliente(void *arg){ 
     //Assegno il numero di prodotti da acquistare in modo casuale (da 0 a P)
     unsigned int seed1 = ((client *)arg)->id + time(NULL);
-    long r = generaProdotto(seed1);
+    long r = generaProdotto(seed1,cfg.P);
     ((client *)arg)->numProd = (int)r;
     //Assegno il tempo per acquistare i prodotti (da 10 a T)
     unsigned int seed2 = ((client *)arg)->id + time(NULL);
-    r = generaTempoAcquisto(seed2);
+    r = generaTempoAcquisto(seed2,cfg.T);
     ((client *)arg)->tempoAcquisto = (float)r/1000;
     //Il cliente ora deve attendere ((client *)arg)->tempoAcquisto secondi per poi mettersi in coda.
     //Per farlo però devo distinguere due casi: Se ((client *)arg)->numProd è 0 va nella coda direttore
@@ -479,32 +479,40 @@ void *TimerCassa(void *arg){
         pthread_cond_signal(&condFlagInfoCasse);
         pthread_mutex_unlock(&mutexFlagInfoCasse);
     }
+    pthread_mutex_lock(&mutexFlagInfoCasse);
+    flagInfoCasse = 999;
+    pthread_cond_signal(&condFlagInfoCasse);
+    pthread_mutex_unlock(&mutexFlagInfoCasse);
+    fprintf(stdout,"ESCOOO\n");
+    fflush(stdout);
     pthread_exit(NULL);
 }
 
 void *DirettoreCasse(void *arg){
-        //GENERO I CASSIERI
+    //GENERO I CASSIERI
     pthread_t *id_casse = malloc(sizeof(pthread_t)*cfg.K);
+    pthread_t *id_timer = malloc(sizeof(pthread_t)*cfg.K);
     cassieri = malloc(sizeof(cassiere)*cfg.K);
     initCassieri();
     for(int i=0;i<cfg.K;i++){
         id_casse[i] = i;
+        id_timer[i] = i + cfg.K;
         inizializzaCassiere(&cassieri[i],id_casse[i]);
         if(i<cfg.casse_iniziali){
             apriCassa(&cassieri[i]);
         }
+        //Creo i cassieri
         if(pthread_create(&id_casse[i],NULL,Cassiere,&cassieri[i]) != 0){
             fprintf(stderr,"Errore creazione thread cassiere %d-esimo",i);
             exit(EXIT_FAILURE);
         }
-        id_casse[i] += cfg.K; 
-        if(pthread_create(&id_casse[i],NULL,TimerCassa,&cassieri[i]) != 0){
+        //Creo i timer
+        if(pthread_create(&id_timer[i],NULL,TimerCassa,&cassieri[i]) != 0){
             fprintf(stderr,"Errore creazione thread TimerCassa %d-esimo",i);
             exit(EXIT_FAILURE);
         }
-        id_casse[i] -= cfg.K;
     }
-    while(sighup==0 && sigquit==0){
+    /*while(sighup==0 && sigquit==0){
         int a = -1;
         int info = 0;
         //Attendo che mi arrivi un segnale
@@ -512,9 +520,9 @@ void *DirettoreCasse(void *arg){
         while(flagInfoCasse == -1){
             pthread_cond_wait(&condFlagInfoCasse,&mutexFlagInfoCasse);
         }
-
         a = flagInfoCasse;
         pthread_mutex_unlock(&mutexFlagInfoCasse);
+        if(a == 999) break;
         //a è l'indice della cassa che ha mandato il segnale
         //quindi posso lockare infoCasse[a] e prelevare il numero, stampandolo
         pthread_mutex_lock(&mutexInfoCasse[a]);
@@ -612,6 +620,13 @@ void *DirettoreCasse(void *arg){
         //forse non servo io!
         pthread_cond_signal(&condFlagInfoCasse);
         pthread_mutex_unlock(&mutexFlagInfoCasse);
+    }*/
+    //JOIN TIMER
+    for(int i=0;i<cfg.K;i++){
+        if(pthread_join(id_timer[i], NULL) != 0){
+            fprintf(stderr,"Errore join thread timer %d-esimo",i);
+            exit(EXIT_FAILURE);
+        }
     }
             //JOIN CASSIERI
     for(int i=0;i<cfg.K;i++){
@@ -621,12 +636,9 @@ void *DirettoreCasse(void *arg){
             fprintf(stderr,"Errore join thread cassiere %d-esimo",i);
             exit(EXIT_FAILURE);
         }
-        if(pthread_join(id_casse[i]+cfg.K, NULL) != 0){
-            fprintf(stderr,"Errore join thread cassiere %d-esimo",i);
-            exit(EXIT_FAILURE);
-        }
     }
     free(id_casse);
+    //free(id_timer);
     return NULL;
 }
 void handler(int signum){
