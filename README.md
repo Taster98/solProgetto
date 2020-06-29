@@ -34,6 +34,17 @@ chmod +x analisi.sh
 ./analisi.sh
 ```
 Altrimenti, per eseguire il test standard:
+Per la compilazione:
 ```
-#aggiungere makefile
+make
+```
+Per eseguire il test:
+```
+make test
+```
+Il supermercato resta aperto per 25 secondi, dopodichè riceve un segnale di <b>SIGHUP</b>, quindi impiegherà un ulteriore tempo. Infine, eseguirà uno script 'analisi.sh' che effettua il parsing del file di log generato dal programma sul terminale.
+
+Infine, per cancellare file temporanei ed eseguibili inutilizzati, eseguire:
+```
+make clean
 ```
