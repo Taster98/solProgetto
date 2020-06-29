@@ -17,13 +17,5 @@
     if((s) == NULL){ \
         fprintf(stderr, m "\n"); \
     }
-/*controlla la mutex_unlock, restituisce un numero diverso da 0 se non è andata a buon fine*/
-#define ec_mutex_unlock(s) \
-    if((s)!=0)  \
-        fprintf(stderr, "Errore con la unlock");
-/*controlla la mutex_lock, restituisce un numero diverso da 0 se non è andata a buon fine*/
-#define ec_mutex_lock(s) \
-    if((s)!=0)  \
-        fprintf(stderr, "Errore con la lock");
 
 

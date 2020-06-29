@@ -26,8 +26,7 @@ coda *creaCoda(){
     return q;
 }
 
-//funzione che inserisce in coda
-//prendo il cliente tmp da inserire in coda q
+//funzione che inserisce tmp in coda q
 void enqueue(coda *q, client tmp){
     elem *e;
     e = creaElem(tmp);
@@ -60,13 +59,21 @@ void dequeue(coda *q){
         //se siamo arrivati in fondo inizializzo anche la coda
         if(q->head == NULL)
             q->tail = NULL;
-
         free(tmp);
         //decremento la dimensione
         q->dim--;
     }
 }
-
+//Funzione ausiliaria per aggiornare il tempo in coda dei clienti
+void aggiornaTempoCoda(coda q, float tempoFisso, float tempoVar){
+    elem *corr = q.head;
+    float t = 0;
+    while(corr != NULL){
+        corr->c.tempoCoda = t + tempoFisso + corr->c.numProd*tempoVar;
+        t = corr->c.tempoCoda;
+        corr = corr->next;
+    }
+}
 //funzione che stampa la coda
 void printQueue(coda q){
     elem *corr = q.head;
