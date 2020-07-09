@@ -1,11 +1,11 @@
 K=6
 C=50
-E=3
+E=15
 T=200
 P=100
 S=20
 S1=2
-S2=10
-t_info=35
+S2=8
+t_info=20
 c_iniz=1
 log=logfile.log

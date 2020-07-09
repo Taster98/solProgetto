@@ -1,5 +1,5 @@
 #!/bin/bash
-while [ -e /proc/$1 ]
+while [ -e /proc/$2 ]
 do
     sleep 1s
 done

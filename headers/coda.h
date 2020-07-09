@@ -69,8 +69,8 @@ void aggiornaTempoCoda(coda q, float tempoFisso, float tempoVar){
     elem *corr = q.head;
     float t = 0;
     while(corr != NULL){
-        corr->c.tempoCoda = t + tempoFisso + corr->c.numProd*tempoVar;
-        t = corr->c.tempoCoda;
+        t = t + tempoFisso + (corr->c.numProd * tempoVar);
+        corr->c.tempoCoda = t;
         corr = corr->next;
     }
 }

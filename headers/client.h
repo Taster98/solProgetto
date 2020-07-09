@@ -4,6 +4,8 @@ typedef struct client{
     float tempoCoda; //tempo speso in coda
     float tempoAcquisto; //tempo per acquistare
     int numCodeViste; //numero di code visitate
+    struct timespec entry_time;
+    struct timespec exit_time;
 }client;
 
 void inizializzaCliente(client *c, int id){

@@ -19,24 +19,21 @@ void inizializzaCassiere(cassiere *c,int id, float tempoProdotto){
     unsigned seed = (unsigned)c->id + time(NULL);
     long r = randomFisso(seed);
     //tempo convertito in secondi
-    c->tempoFisso = (float)r/1000;
-    c->tempoProdotto = tempoProdotto/1000;
+    c->tempoFisso = (float)r;
+    c->tempoProdotto = tempoProdotto;
     c->tempoApertura = 0;
     c->cassaAperta = 0;
     c->numeroChiusure =0;
 }
 
 void apriCassa(cassiere *c){
-    if(c->cassaAperta != -1)
+    //if(c->cassaAperta != -1)
         c->cassaAperta = 1;
 }
 
 void chiudiCassa(cassiere *c){
     c->cassaAperta = 0;
     (c->numeroChiusure)++;
-    c->numClients = 0;
-    c->numProd = 0;
-    c->tempoApertura = 0;
 }
 //funzioni ausiliarie
 long randomFisso(unsigned int seed){
