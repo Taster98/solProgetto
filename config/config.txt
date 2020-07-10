@@ -6,6 +6,6 @@ P=100
 S=20
 S1=2
 S2=10
-t_info=35
+t_info=22
 c_iniz=1
 log=logfile.log

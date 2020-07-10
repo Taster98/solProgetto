@@ -11,13 +11,19 @@ LIBLINK = -lpthread
 #file di configurazione standard
 CONFIG = ./config/config.txt
 
+#variabile per la modalità di debug
+DEBUG = -DDEBUG
+
 #definisco i "falsi" target
-.PHONY: clean test personal personalTime
+.PHONY: clean test personal personalTime debug
 
 all: ./supermercato
 
 ./supermercato: ./supermercato.c
 	$(CC) $@.c $(CFLAGS) -o $@ $(LIBLINK)
+
+debug: ./supermercato.c
+	$(CC) supermercato.c $(CFLAGS) $(DEBUG) -o ./supermercato $(LIBLINK)
 
 test:
 	(./supermercato -c $(CONFIG) & echo $$! > supermercato.txt) &

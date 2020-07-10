@@ -123,8 +123,10 @@ void *TimerCasse(void *arg);
 //FUNZIONI AGGIUNTIVE - PROTOTIPI
 int contaCasseAperte(cassiere *c);
 cassiere *casseAperte(cassiere *c, int count);
-//funzione per stampare più comodamente (DEBUG)
+//funzioni per stampare più comodamente (DEBUG)
 void print(char *s);
+void printI(char *s, int i);
+
 int esseUno();
 int esseDue();
 int informazioniRicevute();
@@ -132,6 +134,7 @@ void wakeUp();
 void informazioniSigHup();
 void ritornaMenoUno();
 void stampaInfo();
+float diffTime(struct timespec t_in, struct timespec t_fin);
 //THREAD PRINCIPALE - MAIN (Supermercato)
 int main(int argc, char *argv[]){
     /*Il main coincide col thread Supermercato;
@@ -246,15 +249,30 @@ int main(int argc, char *argv[]){
 
 /*Thread Direttore: Si occupa di avviare i due sottothread rlativi alla gestione delle casse e dei clienti.*/
 void *Direttore(void *arg){
+    #ifdef DEBUG
+    print("Thread Direttore avviato.");
+    #endif
     //Avvio i sottothread del direttore
     pthread_t id_direttore_casse = 2;
     pthread_t id_direttore_clienti = 3;
     int num = 7;
     ec_meno1(pthread_create(&id_direttore_casse,NULL,DirettoreCasse,&num),"Errore creazione thread Direttore Casse");
+    #ifdef DEBUG
+    print("Sotto-thread ausiliario Direttore Casse avviato.");
+    #endif
     ec_meno1(pthread_create(&id_direttore_clienti,NULL,DirettoreClienti,NULL),"Errore creazione thread Direttore Clienti");
+    #ifdef DEBUG
+    print("Sotto-thread ausiliario Direttore Clienti avviato.");
+    #endif
     //Join dei sottothread direttore
     ec_meno1(pthread_join(id_direttore_clienti,NULL),"Errore join thread Direttore Clienti");
+    #ifdef DEBUG
+    print("Sotto-thread ausiliario Direttore Clienti terminato.");
+    #endif
     ec_meno1(pthread_join(id_direttore_casse,NULL),"Errore join thread Direttore Casse");
+    #ifdef DEBUG
+    print("Sotto-thread ausiliario Direttore Casse terminato.");
+    #endif
     pthread_exit(NULL);
 }
 
@@ -267,12 +285,12 @@ aperte. (Vanno contate le casse aperte). Mi metto in wait finchè */
 void *DirettoreCasse(void *arg){
     //Creo un array di id_casse
     pthread_t *id_casse = malloc(sizeof(pthread_t)*cfg.K);
-    //Creo un array di id_timer
-    //pthread_t *id_timer = malloc(sizeof(pthread_t)*cfg.K);
     //Genero cfg.K thread casse
     for(int i=0;i<cfg.K;i++){
         ec_meno1(pthread_create(&id_casse[i],NULL,Casse,&casse[i]),"Errore creazione thread cassa.");
-        //ec_meno1(pthread_create(&id_timer[i],NULL,TimerCasse,&casse[i]),"Errore creazione thread timer.");
+        #ifdef DEBUG
+        printI("Avvio cassa",i+1);
+        #endif
     }
     while(sigquit == 0 && sighup == 0){
         pthread_mutex_lock(&mutexInformazioni);
@@ -372,9 +390,9 @@ void *DirettoreCasse(void *arg){
             *(int *)arg = (*(int *)arg +3)%79;
             free(chiuse);
             //riazzero le informazioni, per evitare dati sfalsati:
-            pthread_mutex_lock(&mutexInformazioni);
+            /*pthread_mutex_lock(&mutexInformazioni);
             ritornaMenoUno();
-            pthread_mutex_unlock(&mutexInformazioni);
+            pthread_mutex_unlock(&mutexInformazioni);*/
         }
     }
     //Se ho ricevuto sighup, continuo con i controlli S1 e S2, altrimenti esco
@@ -456,14 +474,15 @@ void *DirettoreCasse(void *arg){
             
         }
     }
-    //Se sono uscito, attendo il termine dei thread timer e casse.
+    //Se sono uscito, attendo il termine dei thread casse.
     for(int i=0;i<cfg.K;i++){
-        //ec_meno1(pthread_join(id_timer[i],NULL),"Errore join thread timer cassa.");
         ec_meno1(pthread_join(id_casse[i],NULL),"Errore join thread cassa.");
+        #ifdef DEBUG
+        printI("Terminazione cassa",i+1);
+        #endif
     }
     //Pulisco
     free(id_casse);
-    //free(id_timer);
     pthread_exit(NULL);
 }
 /*Thread ausiliario Direttore Clienti: Si occupa di gestire la coda dei clienti che 
@@ -472,7 +491,6 @@ ne sono usciti cfg.E, ossia fa rimanere costante il numero di clienti nel superm
 Si occupa anche di avviare i cfg.C thread Clienti e attende quindi il loro termine per
 terminare.*/
 void *DirettoreClienti(void *arg){
-    int generatoZero=0;
     //Creo un array di clienti
     client *clienti = malloc(sizeof(client)*cfg.C);
     pthread_t *id_clienti = malloc(sizeof(pthread_t)*cfg.C);
@@ -480,13 +498,16 @@ void *DirettoreClienti(void *arg){
     for(int i=0;i<cfg.C;i++){
         inizializzaCliente(&clienti[i],i);
         ec_meno1(pthread_create(&id_clienti[i],NULL,Clienti,&clienti[i]),"Errore creazione cliente");
+        #ifdef DEBUG
+        printI("Avvio cliente",i+1);
+        #endif
     }
     int *clientiUscenti = malloc(sizeof(int)*cfg.E);
     int k=0;
     while(sighup == 0 && sigquit == 0){
         
         pthread_mutex_lock(&mutexCodaDirettore);
-        while(isEmpty(*codaDirettore) && generatoZero==0 && sighup==0 && sigquit==0){
+        while(isEmpty(*codaDirettore) && sighup==0 && sigquit==0){
             pthread_cond_wait(&condCodaDirettore,&mutexCodaDirettore);
         }
         pthread_mutex_unlock(&mutexCodaDirettore);
@@ -495,10 +516,13 @@ void *DirettoreClienti(void *arg){
         pthread_mutex_lock(&mutexCodaDirettore);
         if(!isEmpty(*codaDirettore)){
             client attuale = codaDirettore->head->c;
+            attuale.exit_time.tv_nsec =0;
+            attuale.exit_time.tv_sec =0;
+            attuale.entry_time.tv_nsec = 0;
+            attuale.entry_time.tv_sec =0;
             clientiUscenti[k]= attuale.id;
             k++;
             dequeue(codaDirettore);
-            generatoZero=0;
             pthread_mutex_unlock(&mutexCodaDirettore);
             //Controllo se k=cfg.E:
             if(k==cfg.E){
@@ -527,8 +551,6 @@ void *DirettoreClienti(void *arg){
                         pthread_mutex_unlock(&mutexLogFile);
                         pthread_mutex_lock(&mutexCodaDirettore);
                         enqueue(codaDirettore,clients[i]);
-                        //avviso che alla prossima iterazione non c'è 0 clienti in coda da me
-                        generatoZero=1;
                         pthread_mutex_unlock(&mutexCodaDirettore);
                     }else{
                         clients[i].numCodeViste++;
@@ -545,6 +567,7 @@ void *DirettoreClienti(void *arg){
                         unsigned int seed3 = clients[i].id + time(NULL);
                         long cas = rand_r(&seed3)%(max);
                         pthread_mutex_lock(&mutexCodeCassieri[casseOpen[cas].id]);
+                        clock_gettime(CLOCK_REALTIME,&(clients[i].entry_time));
                         enqueue(codeCassieri[casseOpen[cas].id],clients[i]);
                         pthread_cond_signal(&condCodeCassieri[casseOpen[cas].id]);
                         pthread_mutex_unlock(&mutexCodeCassieri[casseOpen[cas].id]);
@@ -559,6 +582,9 @@ void *DirettoreClienti(void *arg){
     //Joino i clienti
     for(int i=0;i<cfg.C;i++){
         ec_meno1(pthread_join(id_clienti[i],NULL),"Errore join cliente");
+        #ifdef DEBUG
+        printI("Terminazione cliente",i+1);
+        #endif
     }
     //Pulisco
     free(id_clienti);
@@ -608,7 +634,7 @@ void *TimerCasse(void *arg){
         pthread_mutex_unlock(&mutexCodeCassieri[((cassiere *)arg)->id -1]);
         pthread_mutex_lock(&mutexInformazioni);
         arrayInformazioni[((cassiere *)arg)->id -1] = dim;
-        pthread_cond_signal(&condInformazioni);
+        pthread_cond_broadcast(&condInformazioni);
         pthread_mutex_unlock(&mutexInformazioni);
     }
     pthread_exit(NULL);
@@ -626,10 +652,12 @@ void *Casse(void *arg){
     //Nella fase di inizio, avvio i timer e comincio il ciclo:
     pthread_t id_timer = ((cassiere *)arg)->id;
     ec_meno1(pthread_create(&id_timer,NULL,TimerCasse,&(*(cassiere *)arg)),"Errore creazione thread timer.");
+    #ifdef DEBUG
+    printI("Avvio timer",((cassiere *)arg)->id);
+    #endif
     ((cassiere *)arg)->tempoApertura=0;
     ((cassiere *)arg)->numProd=0;
     ((cassiere *)arg)->numClients=0;
-    float tempoCodaBK = 0;
     //Devo elaborare i clienti alla mia coda fino a che non ricevo un segnale
     while(sighup == 0 && sigquit==0){
         //RIMANGO IN ATTESA FINCHÈ SON CHIUSA:
@@ -639,7 +667,6 @@ void *Casse(void *arg){
             pthread_mutex_lock(&mutexCodeCassieri[((cassiere *)arg)->id -1]);
             while(!isEmpty(*codeCassieri[((cassiere *)arg)->id -1])){
                 client aux = codeCassieri[((cassiere *)arg)->id -1]->head->c;
-                aux.tempoCoda = aux.tempoCoda + tempoCodaBK;
                 dequeue(codeCassieri[((cassiere *)arg)->id -1]);
                 //Assegno al cliente estratto una nuova cassa, e gli aumento il numero di code viste:
                 aux.numCodeViste++;
@@ -657,6 +684,7 @@ void *Casse(void *arg){
                 long cas = generaCassiere(&seed3,max);
                 //Infilo nella nuova coda, segnalo, svuoto casseOpen
                 pthread_mutex_lock(&mutexCodeCassieri[casseOpen[cas].id]);
+                clock_gettime(CLOCK_REALTIME,&(aux.entry_time));
                 enqueue(codeCassieri[casseOpen[cas].id],aux);
                 pthread_cond_signal(&condCodeCassieri[casseOpen[cas].id]);
                 pthread_mutex_unlock(&mutexCodeCassieri[casseOpen[cas].id]);
@@ -665,8 +693,7 @@ void *Casse(void *arg){
             pthread_mutex_unlock(&mutexCodeCassieri[((cassiere *)arg)->id -1]);
             //Ora scrivo lo stato della cassa, nel logFile:
             if(((cassiere *)arg)->numClients >0){
-                fprintf(stdout,"CASSIERE NR. %d\n",((cassiere *)arg)->id);
-                fflush(stdout);
+                ((cassiere *)arg)->numeroChiusure++;
                 pthread_mutex_lock(&mutexLogFile);
                 FILE *fp;
                 ec_null(fp=fopen("logfile.log","a"),"Errore apertura file");
@@ -674,6 +701,10 @@ void *Casse(void *arg){
                 fflush(fp);
                 fclose(fp);
                 pthread_mutex_unlock(&mutexLogFile);
+                pthread_mutex_lock(&mutexSupermercato);
+                supermarket.clientiServiti += ((cassiere *)arg)->numClients;
+                supermarket.prodottiAcquistati += ((cassiere *)arg)->numProd;
+                pthread_mutex_unlock(&mutexSupermercato);
                 ((cassiere *)arg)->numClients =0;
             }
             
@@ -685,7 +716,6 @@ void *Casse(void *arg){
             ((cassiere *)arg)->tempoApertura=0;
             ((cassiere *)arg)->numProd=0;
             ((cassiere *)arg)->numClients=0;
-            tempoCodaBK=0;
             pthread_cond_wait(&condCasseChiuse[((cassiere *)arg)->id -1],&mutexCasseChiuse[((cassiere *)arg)->id -1]);
         }
         pthread_mutex_unlock(&mutexCasseChiuse[((cassiere *)arg)->id -1]);
@@ -694,7 +724,6 @@ void *Casse(void *arg){
         if(sighup || sigquit) break;
         pthread_mutex_lock(&mutexCodeCassieri[((cassiere *)arg)->id -1]);
         while(isEmpty(*codeCassieri[((cassiere *)arg)->id -1]) && sighup==0 && sigquit==0){
-            tempoCodaBK =0;
             pthread_cond_wait(&condCodeCassieri[((cassiere *)arg)->id -1],&mutexCodeCassieri[((cassiere *)arg)->id -1]);
         }
         pthread_mutex_unlock(&mutexCodeCassieri[((cassiere *)arg)->id -1]);
@@ -704,7 +733,6 @@ void *Casse(void *arg){
         //converto il tempo fisso in nanosecondi
         long nanoSec = ((cassiere *)arg)->tempoFisso * 1000000;
         ((cassiere *)arg)->tempoApertura = ((cassiere *)arg)->tempoApertura + ((cassiere *)arg)->tempoFisso;
-        tempoCodaBK = tempoCodaBK + ((cassiere *)arg)->tempoFisso;
         struct timespec t = {0, nanoSec};
         nanosleep(&t,NULL);
         //ORA INIZIO A GESTIRE LA CODA:
@@ -716,18 +744,12 @@ void *Casse(void *arg){
             //Attendo il tempo del prodotto per numProdotti volte:
             long nanoSec2 = ((cassiere *)arg)->tempoProdotto * 1000000;
             ((cassiere *)arg)->tempoApertura = (((cassiere *)arg)->tempoApertura + (((cassiere *)arg)->tempoProdotto * attuale.numProd));
-            tempoCodaBK = (tempoCodaBK + (((cassiere *)arg)->tempoProdotto * attuale.numProd));
             ((cassiere *)arg)->numProd = ((cassiere *)arg)->numProd + attuale.numProd;
             struct timespec t2 = {0,nanoSec2};
             //Ora attendo ((cassiere *)arg)->tempoProdotto per un ciclo che va da 0 a attuale->numProd
             for(int i=0;i<attuale.numProd;i++){
                 nanosleep(&t2,NULL);
             }
-            pthread_mutex_lock(&mutexCodeCassieri[((cassiere *)arg)->id -1]);
-            aggiornaTempoCoda(*codeCassieri[((cassiere *)arg)->id -1],((cassiere *)arg)->tempoFisso,((cassiere *)arg)->tempoProdotto);
-            tempoCodaBK = ((cassiere *)arg)->tempoFisso+attuale.tempoCoda;
-            attuale.tempoCoda = attuale.tempoCoda + tempoCodaBK;
-            pthread_mutex_unlock(&mutexCodeCassieri[((cassiere *)arg)->id -1]);
             //Il cliente è stato servito, lo metto in coda al direttore
             pthread_mutex_lock(&mutexCodaDirettore);
             enqueue(codaDirettore,attuale);
@@ -735,6 +757,7 @@ void *Casse(void *arg){
             pthread_mutex_unlock(&mutexCodaDirettore);
             //Ora lo posso togliere dalla mia coda:
             pthread_mutex_lock(&mutexCodeCassieri[((cassiere *)arg)->id -1]);
+            clock_gettime(CLOCK_REALTIME,&(attuale.exit_time));
             dequeue(codeCassieri[((cassiere *)arg)->id -1]);
             pthread_mutex_unlock(&mutexCodeCassieri[((cassiere *)arg)->id -1]);
             //Ora ho finito con questo cliente, posso stampare il suo resoconto:
@@ -742,10 +765,11 @@ void *Casse(void *arg){
             pthread_mutex_lock(&mutexLogFile);
             FILE *fp;
             ec_null(fp=fopen("logfile.log","a"),"Errore apertura file");
-            fprintf(fp,"| ID CLIENTE: %d | N. PRODOTTI ACQUISTATI: %d | TEMPO TOT SUPERMERCATO: %.3f s | TEMPO TOT SPESO IN CODA: %.3f s | N. CODE VISTE: %d |\n", attuale.id, attuale.numProd, (attuale.tempoAcquisto + attuale.tempoCoda)/1000 , (attuale.tempoCoda)/1000, attuale.numCodeViste);
+            fprintf(fp,"| ID CLIENTE: %d | N. PRODOTTI ACQUISTATI: %d | TEMPO TOT SUPERMERCATO: %.3f s | TEMPO TOT SPESO IN CODA: %.3f s | N. CODE VISTE: %d |\n", attuale.id, attuale.numProd, (attuale.tempoAcquisto/1000 + diffTime(attuale.entry_time,attuale.exit_time)) , diffTime(attuale.entry_time,attuale.exit_time), attuale.numCodeViste);
             fflush(fp);
             fclose(fp);
             pthread_mutex_unlock(&mutexLogFile);
+            
         }
         pthread_mutex_unlock(&mutexCodeCassieri[((cassiere *)arg)->id -1]);
         
@@ -764,7 +788,6 @@ void *Casse(void *arg){
             //Attendo il tempo fisso
             long nanoSec = ((cassiere *)arg)->tempoFisso * 1000000;
             ((cassiere *)arg)->tempoApertura = ((cassiere *)arg)->tempoApertura + ((cassiere *)arg)->tempoFisso;
-            tempoCodaBK = tempoCodaBK + ((cassiere *)arg)->tempoFisso;
             struct timespec t = {0, nanoSec};
             nanosleep(&t,NULL);
             //Mi creo una variabile per capire se stampare o meno i dati della cassa:
@@ -779,7 +802,6 @@ void *Casse(void *arg){
                 //Attendo il tempo del prodotto per numProdotti volte:
                 long nanoSec2 = ((cassiere *)arg)->tempoProdotto * 1000000;
                 ((cassiere *)arg)->tempoApertura = ((cassiere *)arg)->tempoApertura + (((cassiere *)arg)->tempoProdotto * attuale.numProd);
-                tempoCodaBK = (((cassiere *)arg)->tempoProdotto * attuale.numProd);
                 ((cassiere *)arg)->numProd = ((cassiere *)arg)->numProd + attuale.numProd;
                 struct timespec t2 = {0,nanoSec2};
                 //Ora attendo ((cassiere *)arg)->tempoProdotto per un ciclo che va da 0 a attuale->numProd
@@ -792,13 +814,14 @@ void *Casse(void *arg){
                 pthread_cond_signal(&condCodaDirettore);
                 pthread_mutex_unlock(&mutexCodaDirettore);
                 //Ora lo posso togliere dalla mia coda:
+                clock_gettime(CLOCK_REALTIME,&(attuale.exit_time));
                 dequeue(codeCassieri[((cassiere *)arg)->id -1]);
                 //Ora ho finito con questo cliente, posso stampare il suo resoconto:
                 //LOGFILE
                 pthread_mutex_lock(&mutexLogFile);
                 FILE *fp;
                 ec_null(fp=fopen("logfile.log","a"),"Errore apertura file");
-                fprintf(fp,"| ID CLIENTE: %d | N. PRODOTTI ACQUISTATI: %d | TEMPO TOT SUPERMERCATO: %.3f s | TEMPO TOT SPESO IN CODA: %.3f s | N. CODE VISTE: %d |\n", attuale.id, attuale.numProd, (attuale.tempoAcquisto + attuale.tempoCoda)/1000, (attuale.tempoCoda)/1000, attuale.numCodeViste);
+                fprintf(fp,"| ID CLIENTE: %d | N. PRODOTTI ACQUISTATI: %d | TEMPO TOT SUPERMERCATO: %.3f s | TEMPO TOT SPESO IN CODA: %.3f s | N. CODE VISTE: %d |\n", attuale.id, attuale.numProd, (attuale.tempoAcquisto/1000 + diffTime(attuale.entry_time,attuale.exit_time)), diffTime(attuale.entry_time,attuale.exit_time), attuale.numCodeViste);
                 fflush(fp);
                 fclose(fp);
                 pthread_mutex_unlock(&mutexLogFile);
@@ -830,7 +853,6 @@ void *Casse(void *arg){
             //Attendo il tempo fisso
             long nanoSec = ((cassiere *)arg)->tempoFisso * 1000000;
             ((cassiere *)arg)->tempoApertura = ((cassiere *)arg)->tempoApertura + ((cassiere *)arg)->tempoFisso;
-            tempoCodaBK = tempoCodaBK + ((cassiere *)arg)->tempoFisso;
             struct timespec t = {0, nanoSec};
             nanosleep(&t,NULL);
             int stampa=0;
@@ -843,7 +865,6 @@ void *Casse(void *arg){
                 //Attendo il tempo del prodotto per numProdotti volte:
                 long nanoSec2 = ((cassiere *)arg)->tempoProdotto * 1000000;
                 ((cassiere *)arg)->tempoApertura = ((cassiere *)arg)->tempoApertura + ((cassiere *)arg)->tempoProdotto *attuale.numProd;
-                tempoCodaBK = ((cassiere *)arg)->tempoProdotto * attuale.numProd;
                 ((cassiere *)arg)->numProd = ((cassiere *)arg)->numProd + attuale.numProd;
                 struct timespec t2 = {0,nanoSec2};
                 //Ora attendo ((cassiere *)arg)->tempoProdotto per un ciclo che va da 0 a attuale->numProd
@@ -856,13 +877,14 @@ void *Casse(void *arg){
                 pthread_cond_signal(&condCodaDirettore);
                 pthread_mutex_unlock(&mutexCodaDirettore);
                 //Ora lo posso togliere dalla mia coda
+                clock_gettime(CLOCK_REALTIME,&(attuale.exit_time));
                 dequeue(codeCassieri[((cassiere *)arg)->id -1]);
                 //Ora ho finito con questo cliente, posso stampare il suo resoconto:
                 //LOGFILE
                 pthread_mutex_lock(&mutexLogFile);
                 FILE *fp;
                 ec_null(fp=fopen("logfile.log","a"),"Errore apertura file");
-                fprintf(fp,"| ID CLIENTE: %d | N. PRODOTTI ACQUISTATI: %d | TEMPO TOT SUPERMERCATO: %.3f s | TEMPO TOT SPESO IN CODA: %.3f s | N. CODE VISTE: %d |\n", attuale.id, attuale.numProd, (attuale.tempoAcquisto + attuale.tempoCoda)/1000, (attuale.tempoCoda)/1000, attuale.numCodeViste);
+                fprintf(fp,"| ID CLIENTE: %d | N. PRODOTTI ACQUISTATI: %d | TEMPO TOT SUPERMERCATO: %.3f s | TEMPO TOT SPESO IN CODA: %.3f s | N. CODE VISTE: %d |\n", attuale.id, attuale.numProd, (attuale.tempoAcquisto/1000 + diffTime(attuale.entry_time,attuale.exit_time)), diffTime(attuale.entry_time,attuale.exit_time), attuale.numCodeViste);
                 fflush(fp);
                 fclose(fp);
                 pthread_mutex_unlock(&mutexLogFile);
@@ -885,6 +907,9 @@ void *Casse(void *arg){
         }
     }
     ec_meno1(pthread_join(id_timer,NULL),"Errore join thread timer cassa.");
+    #ifdef DEBUG
+    printI("Terminazione timer",((cassiere *)arg)->id);
+    #endif
     pthread_exit(NULL);
 }
 /*Thread Cliente: Questo thread serve per memorizzare dei dati relativi a ciascun cliente. Ogni
@@ -898,7 +923,10 @@ void *Clienti(void *arg){
     unsigned int seed1 = ((client *)arg)->id + time(NULL);
     long r = generaProdotto(seed1, cfg.P);
     ((client *)arg)->numProd = (int)r;
-
+    ((client *)arg)->exit_time.tv_nsec =0;
+    ((client *)arg)->exit_time.tv_sec =0;
+    ((client *)arg)->entry_time.tv_nsec = 0;
+    ((client *)arg)->entry_time.tv_sec =0;
     //Generazione casuale tempo per acquisto (da 10 a cfg.T)
     unsigned int seed2 = ((client *)arg)->id + time(NULL);
     r = generaTempoAcquisto(seed2, cfg.T);
@@ -946,6 +974,8 @@ void *Clienti(void *arg){
         long cassaScelta = generaCassiere(&seed3,casseAp);
         //Metto in coda e segnalo il cassiere
         pthread_mutex_lock(&mutexCodeCassieri[openCass[cassaScelta].id]);
+        //Avvio il "timer" ingresso in coda:
+        clock_gettime(CLOCK_REALTIME, &(((client *)arg)->entry_time));
         enqueue(codeCassieri[openCass[cassaScelta].id],*((client *)arg));
         pthread_cond_signal(&condCodeCassieri[openCass[cassaScelta].id]);
         pthread_mutex_unlock(&mutexCodeCassieri[openCass[cassaScelta].id]);
@@ -957,9 +987,15 @@ void *Clienti(void *arg){
 
 //FUNZIONE DI INIZIALIZZAZIONE GENERALE
 void initAll(){
+    #ifdef DEBUG
+    print("Rimozione eventuale file di log");
+    #endif
     //Cancello file di log se presente
     if(remove("logfile.log") == 0);
     //Inizializzo il supermercato:
+    #ifdef DEBUG
+    print("Inizializzazione strutture dati, mutex e condition variables");
+    #endif
     supermarket.prodottiAcquistati = 0;
     supermarket.clientiServiti = 0;
     //Coda direttori
@@ -993,6 +1029,9 @@ void initAll(){
 
 //FUNZIONE DI PULIZIA GENERALE
 void cleanAll(){
+    #ifdef DEBUG
+    print("Rimozione eventuale file di log");
+    #endif
     free(codaDirettore);
     free(mutexCodeCassieri);
     free(condCodeCassieri);
@@ -1052,6 +1091,11 @@ void print(char *s){
     fprintf(stdout,"%s\n",s);
     fflush(stdout);
 }
+
+void printI(char *s, int i){
+    fprintf(stdout,"%s %d\n",s,i);
+    fflush(stdout);
+}
 //Funzione per risvegliare tutti i thread "dormienti"
 void wakeUp(){
     for(int i=0;i<cfg.K;i++){
@@ -1061,17 +1105,10 @@ void wakeUp(){
 }
 //controllo tutte le info
 int informazioniRicevute(){
-    int vero=0;
-    int count=0;
     for(int i=0;i<cfg.K;i++){
-        if(arrayInformazioni[i] != -1){
-            count++;
-        }
+        if(arrayInformazioni[i] == -1) return 0;
     }
-    if(count == cfg.K){
-        vero=1;
-    }
-    return vero;
+    return 1;
 }
 int esseUno(){
     int vero=0;
@@ -1121,4 +1158,20 @@ void stampaInfo(){
         fprintf(stdout,"INFORMAZIONI: %d\n",arrayInformazioni[i]);
         fflush(stdout);
     }
+}
+//funzione per sottrazione tra timespec:
+float diffTime(struct timespec t_in, struct timespec t_fin){
+    float ris;
+    long sec;
+    long nansec;
+    //PENSO AI SECONDI:
+    sec = t_fin.tv_sec - t_in.tv_sec;
+    //PENSO AI NANOSECONDI:
+    nansec = t_fin.tv_nsec - t_in.tv_nsec;
+    if(nansec<0) {
+        --sec;
+        nansec += 1000000000L;  
+    }
+    ris = (float) (sec + (float)nansec/1000000000);
+    return ris;
 }

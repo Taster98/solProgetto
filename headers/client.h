@@ -14,6 +14,10 @@ void inizializzaCliente(client *c, int id){
     c->tempoCoda = 0;
     c->tempoAcquisto = 0;
     c->numCodeViste = 0;
+    c->entry_time.tv_sec = 0;
+    c->entry_time.tv_nsec =0;
+    c->exit_time.tv_nsec=0;
+    c->exit_time.tv_sec=0;
 }
 
 //Funzione che genera un numero casuale con seed da 0 a P
