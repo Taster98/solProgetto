@@ -1,7 +1,6 @@
 typedef struct client{
     int id;
     int numProd; //prodotti acquistati
-    float tempoCoda; //tempo speso in coda
     float tempoAcquisto; //tempo per acquistare
     int numCodeViste; //numero di code visitate
     struct timespec entry_time;
@@ -11,7 +10,6 @@ typedef struct client{
 void inizializzaCliente(client *c, int id){
     c->id = ++id;
     c->numProd = 0;
-    c->tempoCoda = 0;
     c->tempoAcquisto = 0;
     c->numCodeViste = 0;
     c->entry_time.tv_sec = 0;
@@ -38,6 +36,6 @@ long generaCassiere(unsigned int *seed, int max){
 
 //Funzioni per test
 void printCliente(client c){
-    fprintf(stdout,"ID_CLIENTE: %d\nNUMERO_PROD: %d\nTEMPO_IN_CODA: %.3f\nNUM_CODE_VISTE: %d\n",c.id,c.numProd,c.tempoCoda,c.numCodeViste);
+    //fprintf(stdout,"ID_CLIENTE: %d\nNUMERO_PROD: %d\nTEMPO_IN_CODA: %.3f\nNUM_CODE_VISTE: %d\n",c.id,c.numProd,c.tempoCoda,c.numCodeViste);
     fflush(stdout);
 }

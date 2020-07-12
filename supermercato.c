@@ -1,3 +1,4 @@
+#define _GNU_SOURCE
 #include <pthread.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -123,6 +124,7 @@ void *TimerCasse(void *arg);
 //FUNZIONI AGGIUNTIVE - PROTOTIPI
 int contaCasseAperte(cassiere *c);
 cassiere *casseAperte(cassiere *c, int count);
+
 //funzioni per stampare più comodamente (DEBUG)
 void print(char *s);
 void printI(char *s, int i);
@@ -166,7 +168,7 @@ int main(int argc, char *argv[]){
         ec_null(fp1,"Errore nell'apertura del config");
     }
     int i=0;
-    
+    //Qui ho usato una getline per poter gestire al meglio riga per riga del mio file di config
     while ((read = getline(&line, &len, fp1)) != -1){
         switch(i){
             case 0:
@@ -222,8 +224,7 @@ int main(int argc, char *argv[]){
     struct tm tm = *localtime(&t);
     FILE *fp;
     ec_null(fp=fopen("logfile.log","a"),"Errore apertura file");
-    //printf("now: %02d-%02d-%d %02d:%02d:%02d\n", tm.tm_year + 1900, tm.tm_mon + 1, tm.tm_mday, tm.tm_hour, tm.tm_min, tm.tm_sec);
-    fprintf(fp,"IL SUPERMERCATO HA APERTO IL %02d-%02d-%d  ALLE %02d:%02d:%02d\n\n",tm.tm_mday,tm.tm_mon+1,tm.tm_year+1900, tm.tm_hour, tm.tm_min, tm.tm_sec);
+    fprintf(fp,"\nIL SUPERMERCATO HA APERTO IL %02d-%02d-%d  ALLE %02d:%02d:%02d\n\n",tm.tm_mday,tm.tm_mon+1,tm.tm_year+1900, tm.tm_hour, tm.tm_min, tm.tm_sec);
     fflush(fp);
     fclose(fp);
     //Creo il direttore:
@@ -234,14 +235,16 @@ int main(int argc, char *argv[]){
     ec_zero(pthread_join(id_direttore,NULL),"Errore join Direttore");
     //Pulizia heap
     cleanAll();
-    print("SUPERMERCATO CHIUSO");
+    print("\nSUPERMERCATO CHIUSO");
     t = time(NULL);
     tm = *localtime(&t);
-    ec_null(fp=fopen("logfile.log","a"),"Errore apertura file");
-    //printf("now: %02d-%02d-%d %02d:%02d:%02d\n", tm.tm_year + 1900, tm.tm_mon + 1, tm.tm_mday, tm.tm_hour, tm.tm_min, tm.tm_sec);
-    fprintf(fp,"\nSTATISTICHE GENERALI DEL SUPERMERCATO DEL GIORNO %02d-%02d-%d, CHIUSO ALLE %02d:%02d:%02d:\n| N. CLIENTI TOTALI SERVITI: %d |N. PRODOTTI TOTALI ACQUISTATI: %d |\n",tm.tm_mday,tm.tm_mon+1,tm.tm_year+1900,tm.tm_hour, tm.tm_min, tm.tm_sec, supermarket.clientiServiti, supermarket.prodottiAcquistati);
-    fflush(fp);
-    fclose(fp);
+    //Creo un puntatore per aprire il log delle casse, da "appendere" in fondo al log finale
+    FILE *fp2;
+    //ec_null(fp=fopen("logfile.log","a"),"Errore apertura file");
+    ec_null(fp2=fopen("casse.log","a"),"Errore apertura file");
+    fprintf(fp2,"\nSTATISTICHE GENERALI DEL SUPERMERCATO DEL GIORNO %02d-%02d-%d, CHIUSO ALLE %02d:%02d:%02d:\n| N. CLIENTI TOTALI SERVITI: %d |N. PRODOTTI TOTALI ACQUISTATI: %d |\n",tm.tm_mday,tm.tm_mon+1,tm.tm_year+1900,tm.tm_hour, tm.tm_min, tm.tm_sec, supermarket.clientiServiti, supermarket.prodottiAcquistati);
+    fflush(fp2);
+    fclose(fp2);
     return 0;
 }
 
@@ -273,6 +276,9 @@ void *Direttore(void *arg){
     #ifdef DEBUG
     print("Sotto-thread ausiliario Direttore Casse terminato.");
     #endif
+    #ifdef DEBUG
+    print("Thread Direttore terminato");
+    #endif
     pthread_exit(NULL);
 }
 
@@ -283,6 +289,14 @@ anche dell'avvio delle cfg.K Casse e attende quindi il loro termine per terminar
 /*Il direttore sta in attesa che gli arrivino le notifiche da tutte e sole le casse
 aperte. (Vanno contate le casse aperte). Mi metto in wait finchè */
 void *DirettoreCasse(void *arg){
+    //INIZIALIZZO IL LOG FILE
+    pthread_mutex_lock(&mutexLogFile);
+    FILE *fp;
+    ec_null(fp=fopen("casse.log","a"),"Errore apertura file");
+    fprintf(fp,"\n<---------RESOCONTO CASSE--------->\n\n");
+    fflush(fp);
+    fclose(fp);
+    pthread_mutex_unlock(&mutexLogFile);
     //Creo un array di id_casse
     pthread_t *id_casse = malloc(sizeof(pthread_t)*cfg.K);
     //Genero cfg.K thread casse
@@ -491,6 +505,14 @@ ne sono usciti cfg.E, ossia fa rimanere costante il numero di clienti nel superm
 Si occupa anche di avviare i cfg.C thread Clienti e attende quindi il loro termine per
 terminare.*/
 void *DirettoreClienti(void *arg){
+    //INIZIALIZZO IL LOG FILE
+    pthread_mutex_lock(&mutexLogFile);
+    FILE *fp;
+    ec_null(fp=fopen("logfile.log","a"),"Errore apertura file");
+    fprintf(fp,"<---------RESOCONTO CLIENTI--------->\n\n");
+    fflush(fp);
+    fclose(fp);
+    pthread_mutex_unlock(&mutexLogFile);
     //Creo un array di clienti
     client *clienti = malloc(sizeof(client)*cfg.C);
     pthread_t *id_clienti = malloc(sizeof(pthread_t)*cfg.C);
@@ -696,7 +718,7 @@ void *Casse(void *arg){
                 ((cassiere *)arg)->numeroChiusure++;
                 pthread_mutex_lock(&mutexLogFile);
                 FILE *fp;
-                ec_null(fp=fopen("logfile.log","a"),"Errore apertura file");
+                ec_null(fp=fopen("casse.log","a"),"Errore apertura file");
                 fprintf(fp,"| ID CASSA: %d | N. PROD. ELAB.: %d | N. Clienti: %d | TEMPO TOT: %.3f s | TEMPO MEDIO: %.3f s | N. CHIUSURE: %d |\n",((cassiere *)arg)->id, ((cassiere *)arg)->numProd, ((cassiere *)arg)->numClients, ((cassiere *)arg)->tempoApertura/1000, (((cassiere *)arg)->tempoApertura/((cassiere *)arg)->numClients)/1000, ((cassiere *)arg)->numeroChiusure);
                 fflush(fp);
                 fclose(fp);
@@ -706,6 +728,7 @@ void *Casse(void *arg){
                 supermarket.prodottiAcquistati += ((cassiere *)arg)->numProd;
                 pthread_mutex_unlock(&mutexSupermercato);
                 ((cassiere *)arg)->numClients =0;
+                ((cassiere *)arg)->numProd =0;
             }
             
             //Aggiungo nel supermercato:
@@ -795,7 +818,6 @@ void *Casse(void *arg){
             //Locko la coda, servo tutti finchè ci sono, infine chiudo, stampo ed esco
             pthread_mutex_lock(&mutexCodeCassieri[((cassiere *)arg)->id -1]);
             while(!isEmpty(*codeCassieri[((cassiere *)arg)->id -1])){
-                aggiornaTempoCoda(*codeCassieri[((cassiere *)arg)->id -1],((cassiere *)arg)->tempoFisso,((cassiere *)arg)->tempoProdotto);
                 stampa = 1;
                 client attuale = codeCassieri[((cassiere *)arg)->id -1]->head->c;
                 (((cassiere *)arg)->numClients)++;
@@ -831,16 +853,16 @@ void *Casse(void *arg){
                 //Ora scrivo lo stato della cassa, nel logFile:
                 pthread_mutex_lock(&mutexLogFile);
                 FILE *fp;
-                ec_null(fp=fopen("logfile.log","a"),"Errore apertura file");
+                ec_null(fp=fopen("casse.log","a"),"Errore apertura file");
                 fprintf(fp,"| ID CASSA: %d | N. PROD. ELAB.: %d | N. Clienti: %d | TEMPO TOT: %.3f s | TEMPO MEDIO: %.3f s | N. CHIUSURE: %d |\n",((cassiere *)arg)->id, ((cassiere *)arg)->numProd, ((cassiere *)arg)->numClients, ((cassiere *)arg)->tempoApertura/1000, (((cassiere *)arg)->tempoApertura/((cassiere *)arg)->numClients)/1000, ((cassiere *)arg)->numeroChiusure);
                 fflush(fp);
                 fclose(fp);
                 pthread_mutex_unlock(&mutexLogFile);
-                pthread_mutex_lock(&mutexSupermercato);
-                supermarket.clientiServiti += ((cassiere *)arg)->numClients;
-                supermarket.prodottiAcquistati += ((cassiere *)arg)->numProd;
-                pthread_mutex_unlock(&mutexSupermercato);
             }
+            pthread_mutex_lock(&mutexSupermercato);
+            supermarket.clientiServiti += ((cassiere *)arg)->numClients;
+            supermarket.prodottiAcquistati += ((cassiere *)arg)->numProd;
+            pthread_mutex_unlock(&mutexSupermercato);
         }
     }else if(sigquit){
         //Qui invece devo servire un cliente e poi uscire:
@@ -861,7 +883,6 @@ void *Casse(void *arg){
                 stampa=1;
                 client attuale = codeCassieri[((cassiere *)arg)->id -1]->head->c;
                 (((cassiere *)arg)->numClients)++;
-                attuale.tempoCoda = ((cassiere *)arg)->tempoFisso + ((cassiere *)arg)->tempoProdotto *attuale.numProd;
                 //Attendo il tempo del prodotto per numProdotti volte:
                 long nanoSec2 = ((cassiere *)arg)->tempoProdotto * 1000000;
                 ((cassiere *)arg)->tempoApertura = ((cassiere *)arg)->tempoApertura + ((cassiere *)arg)->tempoProdotto *attuale.numProd;
@@ -894,16 +915,16 @@ void *Casse(void *arg){
                 //Ora scrivo lo stato della cassa, nel logFile:
                 pthread_mutex_lock(&mutexLogFile);
                 FILE *fp;
-                ec_null(fp=fopen("logfile.log","a"),"Errore apertura file");
+                ec_null(fp=fopen("casse.log","a"),"Errore apertura file");
                 fprintf(fp,"| ID CASSA: %d | N. PROD. ELAB.: %d | N. Clienti: %d | TEMPO TOT: %.3f s | TEMPO MEDIO: %.3f s | N. CHIUSURE: %d |\n",((cassiere *)arg)->id, ((cassiere *)arg)->numProd, ((cassiere *)arg)->numClients, ((cassiere *)arg)->tempoApertura/1000, (((cassiere *)arg)->tempoApertura/((cassiere *)arg)->numClients)/1000, ((cassiere *)arg)->numeroChiusure);
                 fflush(fp);
                 fclose(fp);
                 pthread_mutex_unlock(&mutexLogFile);
-                pthread_mutex_lock(&mutexSupermercato);
-                supermarket.clientiServiti += ((cassiere *)arg)->numClients;
-                supermarket.prodottiAcquistati += ((cassiere *)arg)->numProd;
-                pthread_mutex_unlock(&mutexSupermercato);
             }
+            pthread_mutex_lock(&mutexSupermercato);
+            supermarket.clientiServiti += ((cassiere *)arg)->numClients;
+            supermarket.prodottiAcquistati += ((cassiere *)arg)->numProd;
+            pthread_mutex_unlock(&mutexSupermercato);
         }
     }
     ec_meno1(pthread_join(id_timer,NULL),"Errore join thread timer cassa.");
@@ -988,10 +1009,11 @@ void *Clienti(void *arg){
 //FUNZIONE DI INIZIALIZZAZIONE GENERALE
 void initAll(){
     #ifdef DEBUG
-    print("Rimozione eventuale file di log");
+    print("Rimozione eventuali file di log");
     #endif
     //Cancello file di log se presente
     if(remove("logfile.log") == 0);
+    if(remove("casse.log") == 0);
     //Inizializzo il supermercato:
     #ifdef DEBUG
     print("Inizializzazione strutture dati, mutex e condition variables");
@@ -1030,7 +1052,7 @@ void initAll(){
 //FUNZIONE DI PULIZIA GENERALE
 void cleanAll(){
     #ifdef DEBUG
-    print("Rimozione eventuale file di log");
+    print("Pulizia heap");
     #endif
     free(codaDirettore);
     free(mutexCodeCassieri);
@@ -1049,13 +1071,15 @@ void cleanAll(){
 void handler(int signum){
      if(signum == 3){
         //SIGQUIT (CTRL+\)
-        fprintf(stdout,"RICEVUTO SEGNALE SIGQUIT\n");
+        fprintf(stdout,"RICEVUTO SEGNALE SIGQUIT: Chiusura supermercato in corso...\n");
+        fflush(stdout);
         sigquit = 1;
         //Segnalo tutti i timer
         wakeUp();
     }else if(signum == 1){
         //SIGHUP (KILL(1))
-        fprintf(stdout,"RICEVUTO SEGNALE SIGHUP\n");
+        fprintf(stdout,"RICEVUTO SEGNALE SIGHUP: Servendo gli ultimi clienti, attendere...\n");
+        fflush(stdout);
         sighup = 1;
         //Segnalo tutti i timer
         wakeUp();

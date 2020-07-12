@@ -64,22 +64,12 @@ void dequeue(coda *q){
         q->dim--;
     }
 }
-//Funzione ausiliaria per aggiornare il tempo in coda dei clienti
-void aggiornaTempoCoda(coda q, float tempoFisso, float tempoVar){
-    elem *corr = q.head;
-    float t = 0;
-    while(corr != NULL){
-        t = t + tempoFisso + (corr->c.numProd * tempoVar);
-        corr->c.tempoCoda = t;
-        corr = corr->next;
-    }
-}
 //funzione che stampa la coda
 void printQueue(coda q){
     elem *corr = q.head;
     printf("Stampo la coda:\n");
     while(corr != NULL){
-        printCliente(corr->c);
+        //printCliente(corr->c);
         printf("\n");
         corr = corr->next;
     }

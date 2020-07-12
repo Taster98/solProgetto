@@ -3,7 +3,7 @@
 CC = gcc
 
 #aggiungo eventuali flag standard (-g -pedantic e -Wall)
-CFLAGS = -Wall
+CFLAGS = -std=c99 -D_POSIX_C_SOURCE=200112L -Wall
 
 #aggiungo la libreria usata per i thread
 LIBLINK = -lpthread
@@ -26,27 +26,27 @@ debug: ./supermercato.c
 	$(CC) supermercato.c $(CFLAGS) $(DEBUG) -o ./supermercato $(LIBLINK)
 
 test:
-	(./supermercato -c $(CONFIG) & echo $$! > supermercato.txt) &
+	(./supermercato -c $(CONFIG) & echo $$! > supermercato.temp) &
 	sleep 25s; \
-	kill -s 1 $$(cat supermercato.txt); \
+	kill -s 1 $$(cat supermercato.temp); \
 	chmod +x ./analisi.sh
-	./analisi.sh -pid $$(cat supermercato.txt);\
+	./analisi.sh -file logfile.log -pid $$(cat supermercato.temp);\
 
 personal:
-	(./supermercato -c $(conf) & echo $$! > supermercato.txt) &
+	(./supermercato -c $(conf) & echo $$! > supermercato.temp) &
 	sleep 30s; \
-	kill -s 1 $$(cat supermercato.txt); \
+	kill -s 1 $$(cat supermercato.temp); \
 	chmod +x ./analisi.sh
-	./analisi.sh -pid $$(cat supermercato.txt);\
+	./analisi.sh -file logfile.log -pid $$(cat supermercato.temp);\
 
 personalTime:
-	(./supermercato -c $(conf) & echo $$! > supermercato.txt) &
+	(./supermercato -c $(conf) & echo $$! > supermercato.temp) &
 	sleep $(time); \
-	kill -s 1 $$(cat supermercato.txt); \
+	kill -s 1 $$(cat supermercato.temp); \
 	chmod +x ./analisi.sh
-	./analisi.sh -pid $$(cat supermercato.txt);\
+	./analisi.sh -file logfile.log -pid $$(cat supermercato.temp);\
 
 clean: 
 	@echo Pulizia generale...
-	rm -f ./logfile.log ./supermercato supermercato.txt
+	rm -f ./logfile.log ./casse.log ./supermercato supermercato.temp
 
